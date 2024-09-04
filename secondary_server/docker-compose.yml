@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  replica:
+    image: postgres:13
+    container_name: postgres_replica
+    environment:
+      POSTGRES_DB: miningcore
+      POSTGRES_USER: miningcore
+      POSTGRES_PASSWORD: ***REMOVED***
+    volumes:
+      - replica_data:/var/lib/postgresql/data
+      - ./conf:/etc/postgresql
+    ports:
+      - "5432:5432"
+    command: >
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c restore_command='cp /var/lib/postgresql/archive/%f "%p"'
+
+  api_service:
+    build: ./api_service
+    container_name: api_service
+    environment:
+      DB_HOST: replica
+      DB_PORT: 5432
+      DB_NAME: miningcore
+      DB_USER: miningcore
+      DB_PASSWORD: ***REMOVED***
+    depends_on:
+      - replica
+
+volumes:
+  replica_data:

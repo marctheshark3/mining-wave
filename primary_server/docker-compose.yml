@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  primary:
+    image: postgres:13
+    container_name: postgres_primary
+    environment:
+      POSTGRES_DB: miningcore
+      POSTGRES_USER: miningcore
+      POSTGRES_PASSWORD: ***REMOVED***
+    volumes:
+      - primary_data:/var/lib/postgresql/data
+      - ./conf:/etc/postgresql
+    ports:
+      - "5432:5432"
+    command: >
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c hba_file=/etc/postgresql/pg_hba.conf
+
+volumes:
+  primary_data:
