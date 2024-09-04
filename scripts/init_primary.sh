@@ -22,6 +22,12 @@ cd "$(dirname "$0")/.."
 echo "Copying configuration files..."
 docker-compose -f primary_server/docker-compose.yml up --abort-on-container-exit
 
+echo "Copying configuration files to PostgreSQL directory..."
+sudo cp /tmp/postgresql.conf /etc/postgresql/12/main/postgresql.conf
+sudo cp /tmp/pg_hba.conf /etc/postgresql/12/main/pg_hba.conf
+sudo chown postgres:postgres /etc/postgresql/12/main/*.conf
+sudo chmod 600 /etc/postgresql/12/main/*.conf
+
 echo "Restarting PostgreSQL to apply new configuration..."
 if ! sudo systemctl restart postgresql@12-main; then
     echo "Error: Failed to restart PostgreSQL"
