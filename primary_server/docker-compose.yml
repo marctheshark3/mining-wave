@@ -4,6 +4,8 @@ services:
   primary_config:
     image: postgres:13
     container_name: postgres_primary_config
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - ./conf:/etc/postgresql
     command: >
