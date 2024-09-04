@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   replica:
-    image: postgres:13
+    image: postgres:12
     container_name: postgres_replica
     environment:
       - POSTGRES_DB=miningcore
