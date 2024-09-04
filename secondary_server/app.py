@@ -17,7 +17,7 @@ def get_db_connection():
 def get_data():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('SELECT * FROM your_table_name LIMIT 100;')  # Replace with your actual table name
+    cur.execute('SELECT * FROM shares LIMIT 100;')  # Replace with your actual table name
     data = cur.fetchall()
     cur.close()
     conn.close()
