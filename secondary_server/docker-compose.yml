@@ -8,14 +8,20 @@ services:
       - POSTGRES_DB=miningcore
       - POSTGRES_USER=miningcore
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - PRIMARY_IP=${PRIMARY_IP}
+      - REPLICATOR_PASSWORD=${REPLICATOR_PASSWORD}
     volumes:
       - replica_data:/var/lib/postgresql/data
       - ./conf:/etc/postgresql
     ports:
       - "5433:5432"
     command: >
-      -c config_file=/etc/postgresql/postgresql.conf
-      -c restore_command='cp /var/lib/postgresql/archive/%f "%p"'
+      bash -c "
+      envsubst < /etc/postgresql/recovery.conf > /var/lib/postgresql/data/recovery.conf &&
+      envsubst < /etc/postgresql/pg_hba.conf > /var/lib/postgresql/data/pg_hba.conf &&
+      cp /etc/postgresql/postgresql.conf /var/lib/postgresql/data/postgresql.conf &&
+      postgres -c config_file=/var/lib/postgresql/data/postgresql.conf
+      "
 
   api_service:
     build: ./api_service

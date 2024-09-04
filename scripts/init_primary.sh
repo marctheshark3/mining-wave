@@ -1,24 +1,52 @@
 #!/bin/bash
 
+# Exit immediately if a command exits with a non-zero status
+set -e
+
 # Load environment variables from .env file
-set -a
-source ../.env
-set +a
+if [ -f ../.env ]; then
+    export $(cat ../.env | xargs)
+else
+    echo "Error: .env file not found"
+    exit 1
+fi
 
-# Copy configuration files
-docker-compose -f ../primary_server/docker-compose.yml up --abort-on-container-exit
+# Check if required variables are set
+if [ -z "$REPLICATOR_PASSWORD" ]; then
+    echo "Error: REPLICATOR_PASSWORD is not set in the .env file"
+    exit 1
+fi
 
-# Restart PostgreSQL to apply new configuration
-sudo systemctl restart postgresql
+# Change to the correct directory
+cd "$(dirname "$0")/.."
 
-# Create replication user if it doesn't exist
-sudo -u postgres psql -c "DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'replicator') THEN
-    CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD '${REPLICATOR_PASSWORD}';
-  END IF;
-END
-\$\$;"
+echo "Copying configuration files..."
+docker-compose -f primary_server/docker-compose.yml up --abort-on-container-exit
 
-echo "Primary server initialized. Please update the PRIMARY_IP in the secondary_server/conf/recovery.conf file."
-echo "You may need to open port 5432 in your firewall for replication."
+echo "Restarting PostgreSQL to apply new configuration..."
+if ! sudo systemctl restart postgresql; then
+    echo "Error: Failed to restart PostgreSQL"
+    exit 1
+fi
+
+echo "Creating replication user..."
+if sudo -u postgres psql -c "
+    DO \$\$
+    BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'replicator') THEN
+            CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD '${REPLICATOR_PASSWORD}';
+            RAISE NOTICE 'User replicator created successfully';
+        ELSE
+            RAISE NOTICE 'User replicator already exists';
+        END IF;
+    END
+    \$\$;
+"; then
+    echo "Replication user setup completed successfully"
+else
+    echo "Error: Failed to setup replication user"
+    exit 1
+fi
+
+echo "Primary server initialized successfully."
+echo "Please ensure that port 5432 is open in your firewall for replication."
