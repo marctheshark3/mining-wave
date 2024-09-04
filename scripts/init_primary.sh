@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# Start the primary server
-docker-compose -f ../primary_server/docker-compose.yml up -d
+# Copy configuration files
+docker-compose -f ../primary_server/docker-compose.yml up
 
-# Wait for the primary server to be ready
-sleep 10
+# Restart PostgreSQL to apply new configuration
+sudo systemctl restart postgresql
 
 # Create replication user
-docker exec postgres_primary psql -U ***REMOVED***-c "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD 'replicator_password';"
+sudo -u postgres psql -c "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD 'replicator_password';"
 
 echo "Primary server initialized. Please update the PRIMARY_IP in the secondary_server/conf/recovery.conf file."
+echo "You may need to open port 5432 in your firewall for replication."

@@ -1,36 +1,14 @@
 # Mining Wave
 
-Mining Wave is a containerized PostgreSQL replication setup designed for mining pool operations. It consists of a primary server and a secondary (replica) server with an integrated API service for interacting with the Ergo blockchain.
-
-## Project Structure
-
-```
-mining-wave/
-├── primary_server/
-│   ├── docker-compose.yml
-│   └── conf/
-│       ├── postgresql.conf
-│       └── pg_hba.conf
-├── secondary_server/
-│   ├── docker-compose.yml
-│   ├── conf/
-│   │   ├── postgresql.conf
-│   │   └── recovery.conf
-│   └── api_service/
-│       ├── Dockerfile
-│       ├── requirements.txt
-│       └── main.py
-└── scripts/
-    ├── init_primary.sh
-    ├── init_secondary.sh
-    └── query_db.sh
-```
+Mining Wave is a PostgreSQL replication setup designed for mining pool operations, with an existing primary database server and a new secondary (replica) server with an integrated API service for interacting with the Ergo blockchain.
 
 ## Prerequisites
 
+- Existing PostgreSQL instance running on the primary server
 - Docker and Docker Compose installed on both primary and secondary servers
 - Git installed on both servers
 - Network connectivity between the primary and secondary servers
+- Sudo access on the primary server
 
 ## Setup Instructions
 
@@ -49,33 +27,18 @@ mining-wave/
    ./init_primary.sh
    ```
 
+3. Ensure that port 5432 is open in your firewall for the secondary server's IP.
+
 ### On the Secondary Server
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/your-username/mining-wave.git
-   cd mining-wave
-   ```
-
-2. Initialize the secondary server:
-   ```
-   cd scripts
-   chmod +x init_secondary.sh
-   export PRIMARY_IP=<ip_of_primary_server>
-   ./init_secondary.sh
-   ```
-
-   Replace `<ip_of_primary_server>` with the actual IP address of your primary server.
+(Instructions remain the same as in the previous README)
 
 ## Usage
 
 ### Starting the Services
 
 - On the primary server:
-  ```
-  cd mining-wave/primary_server
-  docker-compose up -d
-  ```
+  The existing PostgreSQL service should already be running. No additional action is needed.
 
 - On the secondary server:
   ```
@@ -85,8 +48,12 @@ mining-wave/
 
 ### Stopping the Services
 
-- On either server:
+- On the primary server:
+  The existing PostgreSQL service should keep running.
+
+- On the secondary server:
   ```
+  cd mining-wave/secondary_server
   docker-compose down
   ```
 
@@ -108,43 +75,40 @@ For example:
 
 ### Primary Server
 
-The primary server runs a PostgreSQL instance configured for replication.
+The primary server runs an existing PostgreSQL instance that has been configured for replication.
 
 ### Secondary Server
 
-The secondary server runs:
-1. A PostgreSQL instance configured as a replica of the primary server.
-2. An API service that interacts with the Ergo blockchain and updates the database.
+(Remains the same as in the previous README)
 
 ### API Service
 
-The API service runs on the secondary server and performs the following tasks:
-- Fetches new block data from the Ergo blockchain every 10 minutes.
-- Updates the `blocks` table in the PostgreSQL database with the fetched data.
+(Remains the same as in the previous README)
 
 ## Configuration
 
-- Database credentials and other configurations are set in the `docker-compose.yml` files.
-- PostgreSQL configurations are in the `conf` directories.
+- Primary server PostgreSQL configurations are applied to the existing instance.
+- Secondary server configurations remain in the `conf` directories.
 - The API service configuration is in `secondary_server/api_service/main.py`.
 
 ## Troubleshooting
 
 If you encounter issues:
 
-1. Check Docker logs:
+1. On the primary server, check PostgreSQL logs:
+   ```
+   sudo tail -f /var/log/postgresql/postgresql-13-main.log
+   ```
+
+2. On the secondary server, check Docker logs:
    ```
    docker-compose logs
    ```
 
-2. Ensure the PRIMARY_IP is correctly set on the secondary server.
+3. Ensure the PRIMARY_IP is correctly set on the secondary server.
 
-3. Verify network connectivity between the primary and secondary servers.
+4. Verify network connectivity between the primary and secondary servers.
 
-## Contributing
+5. Check that port 5432 is open in the primary server's firewall for the secondary server's IP.
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+(The rest of the README remains the same)

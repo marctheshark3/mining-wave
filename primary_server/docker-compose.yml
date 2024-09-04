@@ -1,21 +1,15 @@
 version: '3.8'
 
 services:
-  primary:
+  primary_config:
     image: postgres:13
-    container_name: postgres_primary
-    environment:
-      POSTGRES_DB: miningcore
-      POSTGRES_USER: miningcore
-      POSTGRES_PASSWORD: ***REMOVED***
+    container_name: postgres_primary_config
     volumes:
-      - primary_data:/var/lib/postgresql/data
       - ./conf:/etc/postgresql
-    ports:
-      - "5432:5432"
     command: >
-      -c config_file=/etc/postgresql/postgresql.conf
-      -c hba_file=/etc/postgresql/pg_hba.conf
-
-volumes:
-  primary_data:
+      /bin/bash -c "
+      cp /etc/postgresql/postgresql.conf /var/lib/postgresql/data/postgresql.conf &&
+      cp /etc/postgresql/pg_hba.conf /var/lib/postgresql/data/pg_hba.conf &&
+      chown postgres:postgres /var/lib/postgresql/data/*.conf &&
+      chmod 600 /var/lib/postgresql/data/*.conf"
+    restart: "no"
