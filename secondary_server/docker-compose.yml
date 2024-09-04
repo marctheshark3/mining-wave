@@ -1,39 +1,33 @@
 version: '3.8'
 
 services:
-  replica:
+  db:
     image: postgres:12
-    container_name: postgres_replica
     environment:
-      - POSTGRES_DB=miningcore
-      - POSTGRES_USER=miningcore
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - PRIMARY_IP=${PRIMARY_IP}
-      - REPLICATOR_PASSWORD=${REPLICATOR_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - replica_data:/var/lib/postgresql/data
-      - ./conf:/etc/postgresql
-    ports:
-      - "5433:5432"
+      - postgres_data:/var/lib/postgresql/data
     command: >
-      bash -c "
-      envsubst < /etc/postgresql/recovery.conf > /var/lib/postgresql/data/recovery.conf &&
-      envsubst < /etc/postgresql/pg_hba.conf > /var/lib/postgresql/data/pg_hba.conf &&
-      cp /etc/postgresql/postgresql.conf /var/lib/postgresql/data/postgresql.conf &&
-      postgres -c config_file=/var/lib/postgresql/data/postgresql.conf
-      "
+      postgres
+      -c "hot_standby=on"
+      -c "primary_conninfo=host=${PRIMARY_HOST} port=5432 user=${REPLICATION_USER} password=${REPLICATION_PASSWORD}"
+      -c "hot_standby_feedback=on"
+    restart: unless-stopped
 
-  api_service:
-    build: ./api_service
-    container_name: api_service
+  api:
+    build: .
+    ports:
+      - "5000:5000"
     environment:
-      - DB_HOST=replica
-      - DB_PORT=5432
-      - DB_NAME=miningcore
-      - DB_USER=miningcore
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      DB_HOST: db
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
     depends_on:
-      - replica
+      - db
+    restart: unless-stopped
 
 volumes:
-  replica_data:
+  postgres_data:
