@@ -38,7 +38,7 @@ mining-wave/
 
 1. Clone the repository:
    ```
-   git clone https://github.com/your-username/mining-wave.git
+   git clone https://github.com/marctheshark3/mining-wave.git
    cd mining-wave
    ```
 
@@ -53,7 +53,7 @@ mining-wave/
 
 1. Clone the repository:
    ```
-   git clone https://github.com/your-username/mining-wave.git
+   git clone https://github.com/marctheshark3/mining-wave.git
    cd mining-wave
    ```
 
