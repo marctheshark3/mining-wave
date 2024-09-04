@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status
 set -e
 
 # Load environment variables from .env file
@@ -24,7 +23,7 @@ echo "Copying configuration files..."
 docker-compose -f primary_server/docker-compose.yml up --abort-on-container-exit
 
 echo "Restarting PostgreSQL to apply new configuration..."
-if ! sudo systemctl restart postgresql; then
+if ! sudo systemctl restart postgresql@12-main; then
     echo "Error: Failed to restart PostgreSQL"
     exit 1
 fi

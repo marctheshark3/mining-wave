@@ -23,6 +23,9 @@ sed -i "s/replicator_password/$REPLICATOR_PASSWORD/" ../secondary_server/conf/re
 echo "Stopping any running containers..."
 docker-compose -f ../secondary_server/docker-compose.yml down
 
+echo "Removing existing data directory..."
+sudo rm -rf /var/lib/docker/volumes/secondary_server_replica_data/_data
+
 echo "Ensuring Docker volume exists..."
 docker volume create secondary_server_replica_data
 
@@ -30,15 +33,12 @@ echo "Setting correct permissions for Docker volume..."
 sudo mkdir -p /var/lib/docker/volumes/secondary_server_replica_data/_data
 sudo chmod 777 /var/lib/docker/volumes/secondary_server_replica_data/_data
 
-echo "Clearing the replica's data directory..."
-sudo rm -rf /var/lib/docker/volumes/secondary_server_replica_data/_data/*
-
 echo "Using pg_basebackup to copy the database from the primary..."
 if docker run --rm \
     -v secondary_server_replica_data:/var/lib/postgresql/data \
     --network host \
     -e PGPASSWORD=$REPLICATOR_PASSWORD \
-    postgres:13 \
+    postgres:12 \
     pg_basebackup -h $PRIMARY_IP -D /var/lib/postgresql/data -P -U replicator; then
     echo "pg_basebackup completed successfully"
 else
