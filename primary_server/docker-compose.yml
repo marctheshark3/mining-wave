@@ -1,25 +1,18 @@
-version: '3.3'
+version: '3.8'
 
 services:
-  postgres_primary:
+  db:
     image: postgres:12
-    container_name: postgres_primary
     environment:
-      - POSTGRES_DB=miningcore
-      - POSTGRES_USER=miningcore
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - SECONDARY_IP=${SECONDARY_IP}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - primary_data:/var/lib/postgresql/data
-      - ./conf:/etc/postgresql
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
-    command: >
-      bash -c "
-      envsubst < /etc/postgresql/pg_hba.conf > /var/lib/postgresql/data/pg_hba.conf &&
-      cp /etc/postgresql/postgresql.conf /var/lib/postgresql/data/postgresql.conf &&
-      postgres -c config_file=/var/lib/postgresql/data/postgresql.conf
-      "
+    restart: unless-stopped
 
 volumes:
-  primary_data:
+  postgres_data:
