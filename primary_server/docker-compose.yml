@@ -13,13 +13,8 @@ services:
       - SECONDARY_IP=${SECONDARY_IP}
     volumes:
       - primary_data:/var/lib/postgresql/data
-      - ./start-primary.sh:/docker-entrypoint-initdb.d/start-primary.sh
-    command: >
-      postgres
-      -c wal_level=replica
-      -c max_wal_senders=3
-      -c max_replication_slots=2
-      -c hba_file=/etc/postgresql/pg_hba.conf
+      - ./start-primary.sh:/start-primary.sh
+    command: ["/bin/bash", "/start-primary.sh"]
 
 volumes:
   primary_data:
