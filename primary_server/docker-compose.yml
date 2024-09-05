@@ -1,4 +1,4 @@
-version: '3.8'
+version: '3.3'
 
 services:
   primary_db:
@@ -13,9 +13,10 @@ services:
       - primary_data:/var/lib/postgresql/data
       - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
     command: >
+      postgres
       -c wal_level=replica
       -c max_wal_senders=3
-      - c max_replication_slots=2
+      -c max_replication_slots=2
       -c hba_file=/etc/postgresql/pg_hba.conf
 
 volumes:
