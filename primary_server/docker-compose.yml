@@ -10,6 +10,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - REPLICATION_USER=${REPLICATION_USER}
+      - REPLICATION_PASSWORD=${REPLICATION_PASSWORD}
       - SECONDARY_IP=${SECONDARY_IP}
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
