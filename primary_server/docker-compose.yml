@@ -15,6 +15,7 @@ services:
       - primary_data:/var/lib/postgresql/data
       - ./start-primary.sh:/start-primary.sh
     command: ["/bin/bash", "/start-primary.sh"]
+    user: root
 
 volumes:
   primary_data:

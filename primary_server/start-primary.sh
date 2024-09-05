@@ -8,13 +8,6 @@ log() {
 
 log "Starting primary database setup..."
 
-# Check if PostgreSQL data directory is empty
-if [ -z "$(ls -A /var/lib/postgresql/data)" ]; then
-    log "Initializing PostgreSQL database..."
-    initdb /var/lib/postgresql/data
-    log "PostgreSQL database initialized."
-fi
-
 # Generate pg_hba.conf
 log "Generating pg_hba.conf..."
 cat > /var/lib/postgresql/data/pg_hba.conf <<EOF
@@ -30,18 +23,28 @@ chown postgres:postgres /var/lib/postgresql/data/pg_hba.conf
 chmod 600 /var/lib/postgresql/data/pg_hba.conf
 log "pg_hba.conf generated and permissions set."
 
-# Start PostgreSQL
-log "Starting PostgreSQL..."
-pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/data/logfile start
+# Switch to postgres user and run the rest of the script
+exec su postgres -c "
+    # Initialize the database if it's empty
+    if [ -z \"\$(ls -A /var/lib/postgresql/data)\" ]; then
+        log \"Initializing PostgreSQL database...\"
+        initdb /var/lib/postgresql/data
+        log \"PostgreSQL database initialized.\"
+    fi
 
-# Wait for PostgreSQL to be ready
-log "Waiting for PostgreSQL to be ready..."
-until pg_isready -h localhost -p 5432; do
-    log "PostgreSQL is unavailable - sleeping"
-    sleep 1
-done
-log "PostgreSQL is ready!"
+    # Start PostgreSQL
+    log \"Starting PostgreSQL...\"
+    pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/data/logfile start
 
-# Keep the container running
-log "Setup complete. Keeping container running..."
-tail -f /var/lib/postgresql/data/logfile
+    # Wait for PostgreSQL to be ready
+    log \"Waiting for PostgreSQL to be ready...\"
+    until pg_isready -h localhost -p 5432; do
+        log \"PostgreSQL is unavailable - sleeping\"
+        sleep 1
+    done
+    log \"PostgreSQL is ready!\"
+
+    # Keep the container running
+    log \"Setup complete. Keeping container running...\"
+    tail -f /var/lib/postgresql/data/logfile
+"
