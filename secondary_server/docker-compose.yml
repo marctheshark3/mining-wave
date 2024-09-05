@@ -1,4 +1,4 @@
-version: '3.8'
+version: '2.4'
 
 services:
   secondary_db:
@@ -6,23 +6,19 @@ services:
     ports:
       - "5433:5432"
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - REPLICATION_USER=${REPLICATION_USER}
+      - REPLICATION_PASSWORD=${REPLICATION_PASSWORD}
+      - PRIMARY_HOST=${PRIMARY_HOST}
+      - PRIMARY_PORT=5433
+      - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
       - secondary_data:/var/lib/postgresql/data
-    command: >
-      -c hot_standby=on
-      -c max_standby_streaming_delay=30s
-
-  api:
-    build: ./api
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@secondary_db:5432/${POSTGRES_DB}
-    depends_on:
-      - secondary_db
+      - ./start-secondary.sh:/start-secondary.sh
+    command: ["/bin/bash", "/start-secondary.sh"]
+    user: root
 
 volumes:
   secondary_data:
