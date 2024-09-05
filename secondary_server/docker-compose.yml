@@ -1,42 +1,42 @@
 version: '3.8'
 
 services:
-  db:
-    image: postgres:12
+  # Secondary PostgreSQL (Mirror)
+  secondary-db:
+    image: postgres:13
+    container_name: secondary-db
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      PGUSER: ${DB_USER}  # Add this line
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
+      - secondary-db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     command: >
-      postgres
-      -c "hot_standby=on"
-      -c "primary_conninfo=host=${PRIMARY_HOST} port=5432 user=${REPLICATION_USER} password=${REPLICATION_PASSWORD}"
-      -c "hot_standby_feedback=on"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U miningcore"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      bash -c "
+        pg_basebackup -h ${PRIMARY_HOST} -D /var/lib/postgresql/data -P -U replicator --wal-method=stream;
+        echo \"standby_mode = 'on'\" > /var/lib/postgresql/data/recovery.conf;
+        echo \"primary_conninfo = 'host=${PRIMARY_HOST} port=5432 user=replicator password=replicator_password'\" >> /var/lib/postgresql/data/recovery.conf;
+        pg_ctl start"
+    networks:
+      - db-network
 
+  # FastAPI app
   api:
     build: .
     ports:
-      - "5000:5000"
+      - "8000:8000"
+    networks:
+      - db-network
     environment:
-      DB_HOST: db
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DATABASE_HOST=secondary-db
 
 volumes:
-  postgres_data:
+  secondary-db-data:
+
+networks:
+  db-network:
