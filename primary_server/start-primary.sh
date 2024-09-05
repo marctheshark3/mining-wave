@@ -11,9 +11,12 @@ log "Starting primary database setup..."
 # Generate pg_hba.conf
 log "Generating pg_hba.conf..."
 cat > /var/lib/postgresql/data/pg_hba.conf <<EOF
-# Allow replication connections from the secondary server host replication ${REPLICATION_USER}${SECONDARY_IP}/32 md5
+# Allow replication connections from the secondary server
+host replication ${REPLICATION_USER} ${SECONDARY_IP}/32 md5
 
-# Allow normal connections host all all all md5 EOF
+# Allow normal connections
+host all all all md5
+EOF
 
 # Make sure the file has the correct permissions
 chown postgres:postgres /var/lib/postgresql/data/pg_hba.conf
