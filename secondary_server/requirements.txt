@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 sqlalchemy
-psycopg2
+psycopg2-binary
 python-dotenv
 
 Werkzeug==2.0.1
