@@ -1,13 +1,22 @@
 #!/bin/bash
 set -e
 
-# Wait for PostgreSQL to be ready
-until pg_isready; do
-  echo "Waiting for PostgreSQL to be ready..."
-  sleep 1
-done
+# Function to log messages
+log() {
+    echo "$(date "+%Y-%m-%d %H:%M:%S") - $1"
+}
+
+log "Starting primary database setup..."
+
+# Check if PostgreSQL data directory is empty
+if [ -z "$(ls -A /var/lib/postgresql/data)" ]; then
+    log "Initializing PostgreSQL database..."
+    initdb /var/lib/postgresql/data
+    log "PostgreSQL database initialized."
+fi
 
 # Generate pg_hba.conf
+log "Generating pg_hba.conf..."
 cat > /var/lib/postgresql/data/pg_hba.conf <<EOF
 # Allow replication connections from the secondary server
 host replication ${REPLICATION_USER} ${SECONDARY_IP}/32 md5
@@ -19,9 +28,20 @@ EOF
 # Make sure the file has the correct permissions
 chown postgres:postgres /var/lib/postgresql/data/pg_hba.conf
 chmod 600 /var/lib/postgresql/data/pg_hba.conf
+log "pg_hba.conf generated and permissions set."
 
-# Restart PostgreSQL to apply the new configuration
-pg_ctl -D /var/lib/postgresql/data restart
+# Start PostgreSQL
+log "Starting PostgreSQL..."
+pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/data/logfile start
+
+# Wait for PostgreSQL to be ready
+log "Waiting for PostgreSQL to be ready..."
+until pg_isready -h localhost -p 5432; do
+    log "PostgreSQL is unavailable - sleeping"
+    sleep 1
+done
+log "PostgreSQL is ready!"
 
 # Keep the container running
-tail -f /dev/null
+log "Setup complete. Keeping container running..."
+tail -f /var/lib/postgresql/data/logfile
