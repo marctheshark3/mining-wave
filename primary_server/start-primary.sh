@@ -16,7 +16,7 @@ log() {
 }
 
 # Check if PGDATA is set, if not set it to the default
-PGDATA=\${PGDATA:-/var/lib/postgresql/data}
+PGDATA=\${PGDATA:-/var/lib/postgresql/data/pgdata}
 
 # Initialize the database if it's empty or not a valid cluster
 if [ -z "\$(ls -A \$PGDATA)" ] || [ ! -f "\$PGDATA/PG_VERSION" ]; then
@@ -49,6 +49,16 @@ until pg_isready -h localhost -p 5432; do
     sleep 1
 done
 log "PostgreSQL is ready!"
+
+# Create replication user if it doesn't exist
+log "Checking for replication user..."
+if ! psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${REPLICATION_USER}'" | grep -q 1; then
+    log "Creating replication user..."
+    psql -c "CREATE USER ${REPLICATION_USER} REPLICATION LOGIN ENCRYPTED PASSWORD '${REPLICATION_PASSWORD}';"
+    log "Replication user created."
+else
+    log "Replication user already exists."
+fi
 
 # Keep the container running
 log "Setup complete. Keeping container running..."
