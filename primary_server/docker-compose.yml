@@ -11,6 +11,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - REPLICATION_USER=${REPLICATION_USER}
       - SECONDARY_IP=${SECONDARY_IP}
+      - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
       - primary_data:/var/lib/postgresql/data
       - ./start-primary.sh:/start-primary.sh
