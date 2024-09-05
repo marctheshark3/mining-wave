@@ -1,27 +1,31 @@
-from flask import Flask, jsonify
-import psycopg2
+from fastapi import FastAPI, HTTPException
+from sqlalchemy import create_engine, MetaData, Table
+from sqlalchemy.orm import sessionmaker
 import os
+from dotenv import load_dotenv
 
-app = Flask(__name__)
+# Load environment variables
+load_dotenv()
 
-def get_db_connection():
-    conn = psycopg2.connect(
-        host=os.environ['DB_HOST'],
-        database=os.environ['DB_NAME'],
-        user=os.environ['DB_USER'],
-        password=os.environ['DB_PASSWORD']
-    )
-    return conn
+# Connect to the secondary database
+DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('DATABASE_HOST')}:5432/{os.getenv('POSTGRES_DB')}"
 
-@app.route('/api/data', methods=['GET'])
-def get_data():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT * FROM shares LIMIT 100;')  # Replace with your actual table name
-    data = cur.fetchall()
-    cur.close()
-    conn.close()
-    return jsonify(data)
+# SQLAlchemy setup
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+metadata = MetaData(bind=engine)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+# FastAPI instance
+app = FastAPI()
+
+# Dynamic route for all tables
+@app.get("/tables/{table_name}")
+def read_table(table_name: str):
+    try:
+        table = Table(table_name, metadata, autoload_with=engine)
+        session = SessionLocal()
+        query = session.query(table).all()
+        session.close()
+        return [dict(row) for row in query]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
