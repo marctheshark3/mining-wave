@@ -1,4 +1,4 @@
-version: '3.3'
+version: '3.8'
 
 services:
   primary_db:
@@ -9,9 +9,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REPLICATION_USER: ${REPLICATION_USER}
+      SECONDARY_IP: ${SECONDARY_IP}
     volumes:
       - primary_data:/var/lib/postgresql/data
-      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
+      - ./start-primary.sh:/docker-entrypoint-initdb.d/start-primary.sh
     command: >
       postgres
       -c wal_level=replica
