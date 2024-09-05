@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # Secondary PostgreSQL (Mirror)
   secondary-db:
-    image: postgres:13
+    image: postgres:12
     container_name: secondary-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
