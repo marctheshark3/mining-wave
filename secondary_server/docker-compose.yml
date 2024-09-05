@@ -12,13 +12,14 @@ services:
     volumes:
       - secondary-db-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     command: >
       bash -c "
-        pg_basebackup -h ${PRIMARY_HOST} -D /var/lib/postgresql/data -P -U replicator --wal-method=stream;
-        echo \"standby_mode = 'on'\" > /var/lib/postgresql/data/recovery.conf;
-        echo \"primary_conninfo = 'host=${PRIMARY_HOST} port=5432 user=replicator password=replicator_password'\" >> /var/lib/postgresql/data/recovery.conf;
-        pg_ctl start"
+        pg_basebackup -h ${PRIMARY_HOST} -D /var/lib/postgresql/data -P -U ${REPLICATION_USER} --password --wal-method=stream;
+        echo \"primary_conninfo = 'host=${PRIMARY_HOST} port=5432 user=${REPLICATION_USER} password=${REPLICATION_PASSWORD}'\" >> /var/lib/postgresql/data/postgresql.conf;
+        echo \"hot_standby = on\" >> /var/lib/postgresql/data/postgresql.conf;
+        touch /var/lib/postgresql/data/standby.signal;
+        postgres"
     networks:
       - db-network
 
@@ -34,6 +35,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - DATABASE_HOST=secondary-db
+    depends_on:
+      - secondary-db
 
 volumes:
   secondary-db-data:

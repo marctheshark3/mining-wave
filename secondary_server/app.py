@@ -29,3 +29,13 @@ def read_table(table_name: str):
         return [dict(row) for row in query]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+# Health check endpoint
+@app.get("/health")
+def health_check():
+    try:
+        with engine.connect() as connection:
+            connection.execute("SELECT 1")
+        return {"status": "healthy"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
