@@ -7,7 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@secondary_db:5434/{os.getenv('POSTGRES_DB')}"
+DB_HOST = os.getenv('DB_HOST', 'postgres_secondary')
+DB_PORT = os.getenv('DB_PORT', '5432')  # This should be 5432 for internal Docker network communication
+DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{DB_HOST}:{DB_PORT}/{os.getenv('POSTGRES_DB')}"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
