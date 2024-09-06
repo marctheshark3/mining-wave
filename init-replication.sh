@@ -3,22 +3,23 @@
 # This script should be run from the root directory containing both primary_server and secondary_server folders
 
 # Load environment variables
+set -a
 source .env
+set +a
 
 # Stop the secondary containers
 docker-compose -f secondary_server/docker-compose.yml down
 
 # Clear the secondary data directory
 sudo rm -rf secondary_server/data
+mkdir -p secondary_server/data
 
 # Create a base backup of the primary
-docker-compose -f primary_server/docker-compose.yml exec postgres_primary pg_basebackup -h localhost -D /tmp/secondary_data -U ${REPLICATION_USER} -v -P -R
-
-# Move the backup to the secondary data directory
-sudo mv /tmp/secondary_data secondary_server/data
+echo "Creating base backup from primary server..."
+PGPASSWORD=$REPLICATION_PASSWORD pg_basebackup -h $PRIMARY_IP -D secondary_server/data -U $REPLICATION_USER -v -P -R
 
 # Create recovery.signal file to initiate recovery mode
-sudo touch secondary_server/data/recovery.signal
+touch secondary_server/data/recovery.signal
 
 # Start the secondary containers (PostgreSQL and API)
 docker-compose -f secondary_server/docker-compose.yml up -d --build
@@ -33,7 +34,7 @@ done
 
 # Check replication status
 echo "Checking replication status..."
-docker-compose -f secondary_server/docker-compose.yml exec -T postgres_secondary psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "SELECT * FROM pg_stat_wal_receiver;"
+docker-compose -f secondary_server/docker-compose.yml exec -T postgres_secondary psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT * FROM pg_stat_wal_receiver;"
 
 # Test API
 echo "Testing API..."
