@@ -1,4 +1,3 @@
-# secondary_server/docker-compose.yml
 version: '3'
 
 services:
@@ -18,3 +17,15 @@ services:
       - "postgres"
       - "-c"
       - "config_file=/etc/postgresql/postgresql.conf"
+
+  api:
+    build: ./api
+    container_name: fastapi_service
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    depends_on:
+      - postgres_secondary
