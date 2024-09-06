@@ -1,114 +1,192 @@
-# Mining Wave
+# PostgreSQL Replication and Mining Core API
 
-Mining Wave is a PostgreSQL replication setup designed for mining pool operations, with an existing primary database server and a new secondary (replica) server with an integrated API service for interacting with the Ergo blockchain.
+This project sets up a PostgreSQL replication system with a primary and secondary server, along with a FastAPI application to serve data from the secondary database.
+
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Directory Structure](#directory-structure)
+3. [Setup Instructions](#setup-instructions)
+   - [Primary Server Setup](#primary-server-setup)
+   - [Secondary Server Setup](#secondary-server-setup)
+4. [Usage](#usage)
+5. [Troubleshooting](#troubleshooting)
+6. [Contributing](#contributing)
+7. [Support the Developer](#support-the-developer)
 
 ## Prerequisites
 
-- Existing PostgreSQL instance running on the primary server
 - Docker and Docker Compose installed on both primary and secondary servers
-- Git installed on both servers
-- Network connectivity between the primary and secondary servers
-- Sudo access on the primary server
+- PostgreSQL client tools installed on the secondary server
+- Basic understanding of PostgreSQL and Docker
+
+## Directory Structure
+
+```
+/
+├── primary_server/
+│   ├── docker-compose.yml
+│   ├── data/
+│   └── conf/
+│       ├── postgresql.conf
+│       └── pg_hba.conf
+├── secondary_server/
+│   ├── docker-compose.yml
+│   ├── data/
+│   ├── conf/
+│   │   ├── postgresql.conf
+│   │   ├── pg_hba.conf
+│   │   └── pg_ident.conf
+│   └── api/
+│       ├── Dockerfile
+│       ├── main.py
+│       └── requirements.txt
+├── .env
+└── init-replication.sh
+```
 
 ## Setup Instructions
 
-### On the Primary Server
+### Primary Server Setup
 
-1. Clone the repository:
+1. Create the necessary directories:
    ```
-   git clone https://github.com/your-username/mining-wave.git
-   cd mining-wave
-   ```
-
-2. Initialize the primary server:
-   ```
-   cd scripts
-   chmod +x init_primary.sh
-   ./init_primary.sh
+   mkdir -p primary_server/{data,conf}
    ```
 
-3. Ensure that port 5432 is open in your firewall for the secondary server's IP.
+2. Create and edit the Docker Compose file:
+   ```
+   nano primary_server/docker-compose.yml
+   ```
+   Add the following content:
+   ```yaml
+   version: '3'
+   
+   services:
+     postgres_primary:
+       image: postgres:12
+       container_name: postgres_primary
+       environment:
+         POSTGRES_DB: ${POSTGRES_DB}
+         POSTGRES_USER: ${POSTGRES_USER}
+         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+       volumes:
+         - ./data:/var/lib/postgresql/data
+         - ./conf:/etc/postgresql
+       ports:
+         - "5432:5432"
+       command: 
+         - "postgres"
+         - "-c"
+         - "config_file=/etc/postgresql/postgresql.conf"
+   ```
 
-### On the Secondary Server
+3. Create and edit the configuration files:
+   ```
+   nano primary_server/conf/postgresql.conf
+   ```
+   Add the following content:
+   ```
+   listen_addresses = '*'
+   wal_level = replica
+   max_wal_senders = 10
+   max_replication_slots = 10
+   hot_standby = on
+   ```
 
-(Instructions remain the same as in the previous README)
+   ```
+   nano primary_server/conf/pg_hba.conf
+   ```
+   Add the following content:
+   ```
+   # TYPE  DATABASE        USER            ADDRESS                 METHOD
+   local   all             all                                     trust
+   host    all             all             127.0.0.1/32            trust
+   host    all             all             ::1/128                 trust
+   host    replication     all             127.0.0.1/32            trust
+   host    replication     all             ::1/128                 trust
+   host    replication     replicator      0.0.0.0/0               md5
+   ```
+
+4. Create a `.env` file in the root directory:
+   ```
+   nano .env
+   ```
+   Add the following content (replace with your actual values):
+   ```
+   POSTGRES_DB=miningcore
+   POSTGRES_USER=miningcore
+   POSTGRES_PASSWORD=your_password
+   REPLICATION_USER=replicator
+   REPLICATION_PASSWORD=your_replication_password
+   ```
+
+5. Start the primary PostgreSQL container:
+   ```
+   cd primary_server
+   docker-compose up -d
+   ```
+
+6. Create the replication user:
+   ```
+   docker exec -it postgres_primary psql -U ${POSTGRES_USER} -c "CREATE USER ${REPLICATION_USER} WITH REPLICATION ENCRYPTED PASSWORD '${REPLICATION_PASSWORD}';"
+   ```
+
+### Secondary Server Setup
+
+1. Copy the entire project directory to the secondary server.
+
+2. Update the `.env` file on the secondary server with the correct PRIMARY_IP:
+   ```
+   PRIMARY_IP=<primary_server_ip>
+   ```
+
+3. Create the initialization script:
+   ```
+   nano init-replication.sh
+   ```
+   Add the content for the initialization script (refer to the previous responses for the full script).
+
+4. Make the script executable:
+   ```
+   chmod +x init-replication.sh
+   ```
+
+5. Run the initialization script:
+   ```
+   ./init-replication.sh
+   ```
 
 ## Usage
 
-### Starting the Services
+After setup, you can access the API endpoints:
 
-- On the primary server:
-  The existing PostgreSQL service should already be running. No additional action is needed.
-
-- On the secondary server:
-  ```
-  cd mining-wave/secondary_server
-  docker-compose up -d
-  ```
-
-### Stopping the Services
-
-- On the primary server:
-  The existing PostgreSQL service should keep running.
-
-- On the secondary server:
-  ```
-  cd mining-wave/secondary_server
-  docker-compose down
-  ```
-
-### Querying the Database
-
-Use the provided script to query the database:
-
-```
-cd mining-wave/scripts
-./query_db.sh "YOUR SQL QUERY HERE"
-```
-
-For example:
-```
-./query_db.sh "SELECT * FROM blocks LIMIT 5;"
-```
-
-## Components
-
-### Primary Server
-
-The primary server runs an existing PostgreSQL instance that has been configured for replication.
-
-### Secondary Server
-
-(Remains the same as in the previous README)
-
-### API Service
-
-(Remains the same as in the previous README)
-
-## Configuration
-
-- Primary server PostgreSQL configurations are applied to the existing instance.
-- Secondary server configurations remain in the `conf` directories.
-- The API service configuration is in `secondary_server/api_service/main.py`.
+- List all tables: `http://secondary_server_ip:8000/tables`
+- Get data from a specific table: `http://secondary_server_ip:8000/table/{table_name}`
 
 ## Troubleshooting
 
 If you encounter issues:
 
-1. On the primary server, check PostgreSQL logs:
+1. Check the logs:
    ```
-   sudo tail -f /var/log/postgresql/postgresql-13-main.log
-   ```
-
-2. On the secondary server, check Docker logs:
-   ```
-   docker-compose logs
+   docker-compose -f secondary_server/docker-compose.yml logs
    ```
 
-3. Ensure the PRIMARY_IP is correctly set on the secondary server.
+2. Ensure all environment variables are correctly set.
 
-4. Verify network connectivity between the primary and secondary servers.
+3. Verify that the primary server is accessible from the secondary server.
 
-5. Check that port 5432 is open in the primary server's firewall for the secondary server's IP.
+4. Check the PostgreSQL configuration files for any misconfigurations.
 
-(The rest of the README remains the same)
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Support the Developer
+
+If you find this project helpful, consider supporting the developer:
+
+- $erg Address: 9gUDVVx75KyZ783YLECKngb1wy8KVwEfk3byjdfjUyDVAELAPUN
+
+Your support is greatly appreciated and helps maintain and improve this project!
