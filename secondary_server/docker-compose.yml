@@ -10,13 +10,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ./data:/var/lib/postgresql/data
-      - ./conf:/etc/postgresql
+      - ./conf/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./conf/pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
     ports:
-      - "5432:5432"
+      - "5434:5432"
     command: 
       - "postgres"
       - "-c"
       - "config_file=/etc/postgresql/postgresql.conf"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   api:
     build: ./api
@@ -27,5 +34,9 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_HOST=postgres_secondary
+      - DB_PORT=5432
     depends_on:
-      - postgres_secondary
+      postgres_secondary:
+        condition: service_healthy
+    restart: unless-stopped
