@@ -1,23 +1,20 @@
-version: '2.4'
+# primary_server/docker-compose.yml
+version: '3'
 
 services:
-  primary_db:
+  postgres_primary:
     image: postgres:12
-    ports:
-      - "5433:5432"
+    container_name: postgres_primary
     environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - REPLICATION_USER=${REPLICATION_USER}
-      - REPLICATION_PASSWORD=${REPLICATION_PASSWORD}
-      - SECONDARY_IP=${SECONDARY_IP}
-      - PGDATA=/var/lib/postgresql/data/pgdata
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - primary_data:/var/lib/postgresql/data
-      - ./start-primary.sh:/start-primary.sh
-    command: ["/bin/bash", "/start-primary.sh"]
-    user: root
-
-volumes:
-  primary_data:
+      - ./data:/var/lib/postgresql/data
+      - ./conf:/etc/postgresql
+    ports:
+      - "5432:5432"
+    command: 
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
