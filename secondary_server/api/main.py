@@ -53,7 +53,7 @@ async def list_tables(db: SessionLocal = Depends(get_db)):
 async def get_table_data(table_name: str, db: SessionLocal = Depends(get_db)):
     try:
         # Use text() to create a safe SQL query
-        query = text(f"SELECT * FROM {table_name} ORDER BY created DESC ")
+        query = text(f"SELECT * FROM {table_name}")
         result = db.execute(query)
         
         # Get column names
