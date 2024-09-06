@@ -4,12 +4,19 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import os
 from dotenv import load_dotenv
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 DB_HOST = os.getenv('DB_HOST', 'postgres_secondary')
 DB_PORT = os.getenv('DB_PORT', '5432')  # This should be 5432 for internal Docker network communication
 DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{DB_HOST}:{DB_PORT}/{os.getenv('POSTGRES_DB')}"
+
+logger.info(f"Connecting to database: {DATABASE_URL}")
+
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -30,9 +37,16 @@ async def root():
 
 @app.get("/tables")
 async def list_tables(db: SessionLocal = Depends(get_db)):
-    metadata = MetaData()
-    metadata.reflect(bind=engine)
-    return {"tables": list(metadata.tables.keys())}
+    try:
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        tables = list(metadata.tables.keys())
+        logger.info(f"Retrieved tables: {tables}")
+        return {"tables": tables}
+    except Exception as e:
+        logger.error(f"Error retrieving tables: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
 
 @app.get("/table/{table_name}")
 async def get_table_data(table_name: str, db: SessionLocal = Depends(get_db)):
