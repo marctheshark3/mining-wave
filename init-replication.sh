@@ -25,6 +25,7 @@ ls secondary_server/conf
 sudo chown -R 999:999 secondary_server/data
 sudo chown 999:999 secondary_server/conf/postgresql.conf
 sudo chown 999:999 secondary_server/conf/pg_hba.conf
+sudo chown 999:999 secondary_server/conf/pg_ident.conf
 
 # Start the secondary containers (PostgreSQL and API)
 docker-compose -f secondary_server/docker-compose.yml up -d --build
