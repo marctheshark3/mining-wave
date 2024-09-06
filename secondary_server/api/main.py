@@ -50,14 +50,23 @@ async def list_tables(db: SessionLocal = Depends(get_db)):
 
 @app.get("/table/{table_name}")
 async def get_table_data(table_name: str, db: SessionLocal = Depends(get_db)):
-    metadata = MetaData()
     try:
-        table = Table(table_name, metadata, autoload_with=engine)
-        query = table.select()
+        # Use text() to create a safe SQL query
+        query = text(f"SELECT * FROM {table_name} LIMIT 100")
         result = db.execute(query)
-        return [dict(row) for row in result]
+        
+        # Get column names
+        columns = result.keys()
+        
+        # Fetch rows and convert to list of dicts
+        rows = [dict(zip(columns, row)) for row in result.fetchall()]
+        
+        logger.info(f"Retrieved {len(rows)} rows from table {table_name}")
+        return rows
     except Exception as e:
-        return {"error": f"Error fetching data from {table_name}: {str(e)}"}
+        logger.error(f"Error fetching data from {table_name}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching data from {table_name}: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
