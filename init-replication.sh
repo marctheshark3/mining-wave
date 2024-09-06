@@ -20,6 +20,11 @@ PGPASSWORD=$REPLICATION_PASSWORD pg_basebackup -h $PRIMARY_IP -D secondary_serve
 
 # Create recovery.signal file to initiate recovery mode
 touch secondary_server/data/recovery.signal
+ls secondary_server/conf
+# Set correct permissions
+sudo chown -R 999:999 secondary_server/data
+sudo chown 999:999 secondary_server/conf/postgresql.conf
+sudo chown 999:999 secondary_server/conf/pg_hba.conf
 
 # Start the secondary containers (PostgreSQL and API)
 docker-compose -f secondary_server/docker-compose.yml up -d --build
