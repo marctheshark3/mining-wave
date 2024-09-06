@@ -49,7 +49,7 @@ async def list_tables(db: SessionLocal = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@app.get("/table/{table_name}")
+@app.get("/miningcore/{table_name}")
 async def get_table_data(table_name: str, db: SessionLocal = Depends(get_db)):
     try:
         # Use text() to create a safe SQL query
