@@ -124,7 +124,7 @@ def get_address_column(table_name: str) -> str:
     }
     return address_columns.get(table_name, "address")
 
-@app.get("/sigs-core/live_miner_data")
+@app.get("/sigscore/live_miner_data")
 async def get_miner_stats(db: SessionLocal = Depends(get_db)):
     try:
         query = text("""
@@ -135,7 +135,7 @@ async def get_miner_stats(db: SessionLocal = Depends(get_db)):
                     sharespersecond,
                     created,
                     ROW_NUMBER() OVER (PARTITION BY miner ORDER BY created DESC) as row_num
-                FROM shares
+                FROM minerstats
             )
             SELECT miner, hashrate, sharespersecond
             FROM latest_entries
