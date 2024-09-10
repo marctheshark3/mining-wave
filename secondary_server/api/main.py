@@ -153,6 +153,53 @@ async def get_miner_stats(db: SessionLocal = Depends(get_db)):
         logger.error(f"Error fetching miner stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching miner stats: {str(e)}")
 
+@app.get("/sigscore/minerstats/{address}")
+async def get_sigscore_miner_stats(address: str, db: SessionLocal = Depends(get_db)):
+    try:
+        # Get current balance
+        balance_query = text("""
+            SELECT amount
+            FROM balances
+            WHERE address = :address
+            ORDER BY updated DESC
+            LIMIT 1
+        """)
+        balance_result = db.execute(balance_query, {"address": address}).fetchone()
+        current_balance = balance_result[0] if balance_result else 0
+
+        # Get latest payment data
+        payment_query = text("""
+            SELECT amount, created, transactionconfirmationdata
+            FROM payments
+            WHERE address = :address
+            ORDER BY created DESC
+            LIMIT 1
+        """)
+        payment_result = db.execute(payment_query, {"address": address}).fetchone()
+        
+        # Get total paid amount
+        total_paid_query = text("""
+            SELECT SUM(amount) as total_paid
+            FROM payments
+            WHERE address = :address
+        """)
+        total_paid_result = db.execute(total_paid_query, {"address": address}).fetchone()
+        
+        # Prepare the response
+        response = {
+            "address": address,
+            "current_balance": current_balance,
+            "last_paid_amount": payment_result[0] if payment_result else 0,
+            "last_paid_date": payment_result[1].isoformat() if payment_result else None,
+            "last_tx_data": payment_result[2] if payment_result else None,
+            "total_paid": total_paid_result[0] if total_paid_result else 0
+        }
+        
+        logger.info(f"Retrieved SigScore miner stats for address: {address}")
+        return response
+    except Exception as e:
+        logger.error(f"Error fetching SigScore miner stats for address {address}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching SigScore miner stats: {str(e)}")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
