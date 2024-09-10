@@ -124,6 +124,35 @@ def get_address_column(table_name: str) -> str:
     }
     return address_columns.get(table_name, "address")
 
+@app.get("/sigs-core/live_miner_data")
+async def get_miner_stats(db: SessionLocal = Depends(get_db)):
+    try:
+        query = text("""
+            WITH latest_entries AS (
+                SELECT 
+                    miner,
+                    hashrate,
+                    sharespersecond,
+                    created,
+                    ROW_NUMBER() OVER (PARTITION BY miner ORDER BY created DESC) as row_num
+                FROM shares
+            )
+            SELECT miner, hashrate, sharespersecond
+            FROM latest_entries
+            WHERE row_num = 1
+        """)
+        
+        result = db.execute(query)
+        
+        columns = result.keys()
+        rows = [dict(zip(columns, row)) for row in result.fetchall()]
+        
+        logger.info(f"Retrieved miner stats for {len(rows)} miners")
+        return rows
+    except Exception as e:
+        logger.error(f"Error fetching miner stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching miner stats: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
