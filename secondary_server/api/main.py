@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy.sql import text
 import logging
+from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
