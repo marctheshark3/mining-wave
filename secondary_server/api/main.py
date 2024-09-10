@@ -120,7 +120,7 @@ def get_address_column(table_name: str) -> str:
         "balance_changes": "address",
         "payments": "address",
         "minerstats": "miner",
-        "block", "miner",
+        "blocks": "miner",
     }
     return address_columns.get(table_name, "address")
 
