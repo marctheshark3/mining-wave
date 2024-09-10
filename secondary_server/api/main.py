@@ -46,9 +46,24 @@ async def list_tables(db: SessionLocal = Depends(get_db)):
         logger.error(f"Error retrieving tables: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+@app.get("/test_db_connection")
+async def test_db_connection(db: SessionLocal = Depends(get_db)):
+    try:
+        result = db.execute(text("SELECT 1")).fetchone()
+        return {"status": "Database connection successful", "result": result[0]}
+    except Exception as e:
+        logger.error(f"Database connection error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
+
 @app.get("/miningcore/{table_name}")
 async def get_table_data(table_name: str, db: SessionLocal = Depends(get_db)):
     try:
+        # Check if the table exists
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        if table_name not in metadata.tables:
+            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+        
         query = text(f"SELECT * FROM {table_name}")
         result = db.execute(query)
         
@@ -57,9 +72,11 @@ async def get_table_data(table_name: str, db: SessionLocal = Depends(get_db)):
         
         logger.info(f"Retrieved {len(rows)} rows from table {table_name}")
         return rows
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching data from {table_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error fetching data from {table_name}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
 
 @app.get("/miningcore/{table_name}/{address}")
 async def get_filtered_table_data(
