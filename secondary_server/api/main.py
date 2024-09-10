@@ -202,7 +202,7 @@ async def get_sigscore_miner_stats(address: str, db: SessionLocal = Depends(get_
         logger.error(f"Error fetching SigScore miner stats for address {address}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching SigScore miner stats: {str(e)}")
 
-@app.get("/sigscore/live/{address}")
+@app.get("/sigscore/samples/{address}")
 async def get_worker_performance(address: str, db: SessionLocal = Depends(get_db)):
     try:
         # Calculate the start and end times for the last 24 hours
@@ -258,7 +258,45 @@ async def get_worker_performance(address: str, db: SessionLocal = Depends(get_db
     except Exception as e:
         logger.error(f"Error fetching worker performance data for address {address}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching worker performance data: {str(e)}")
+
+
+@app.get("/sigscore/live/{address}")
+async def get_miner_stats_by_address(address: str, db: Session = Depends(get_db)):
+    try:
+        query = text("""
+            WITH latest_entry AS (
+                SELECT 
+                    miner,
+                    hashrate,
+                    sharespersecond,
+                    created,
+                    ROW_NUMBER() OVER (PARTITION BY miner ORDER BY created DESC) as row_num
+                FROM minerstats
+                WHERE miner = :address
+            )
+            SELECT miner, hashrate, sharespersecond
+            FROM latest_entry
+            WHERE row_num = 1
+        """)
         
+        result = db.execute(query, {"address": address})
+        
+        columns = result.keys()
+        row = result.fetchone()
+        
+        if row is None:
+            logger.info(f"No stats found for miner address: {address}")
+            raise HTTPException(status_code=404, detail=f"No stats found for miner address: {address}")
+        
+        miner_stats = dict(zip(columns, row))
+        
+        logger.info(f"Retrieved miner stats for address: {address}")
+        return miner_stats
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error fetching miner stats for address {address}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching miner stats for address {address}: {str(e)}")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
