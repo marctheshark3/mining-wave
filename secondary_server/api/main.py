@@ -94,10 +94,10 @@ async def get_filtered_table_data(
 
         # Determine the appropriate column for filtering based on the table
         address_column = get_address_column(table_name)
-
+        print(table_name)
         miner_tables = ['minerstats']
         if table_name in miner_tables:
-            query = text(f"SELECT * FROM {table_name} WHERE {address_column} = :miner LIMIT :limit")
+            query = text(f"SELECT * FROM {table_name} WHERE 'miner' = :address LIMIT :limit")
         else:
             # Use text() to create a safe SQL query with parameter binding
             query = text(f"SELECT * FROM {table_name} WHERE {address_column} = :address LIMIT :limit")
