@@ -96,8 +96,13 @@ async def get_filtered_table_data(
         address_column = get_address_column(table_name)
         
         # Use text() to create a safe SQL query with parameter binding
-        query = text(f"SELECT * FROM {table_name} WHERE {address_column} = :address LIMIT :limit")
-        result = db.execute(query, {"address": address, "limit": limit})
+        try:
+            query = text(f"SELECT * FROM {table_name} WHERE {address_column} = :address LIMIT :limit")
+            result = db.execute(query, {"address": address, "limit": limit})
+        except Exception:
+            print(e)
+            query = text(f"SELECT * FROM {table_name} WHERE {address_column} = :miner LIMIT :limit")
+            result = db.execute(query, {"address": address, "limit": limit})
         
         columns = result.keys()
         rows = [dict(zip(columns, row)) for row in result.fetchall()]
