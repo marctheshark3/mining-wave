@@ -218,7 +218,7 @@ async def get_worker_performance(address: str, db: SessionLocal = Depends(get_db
                     date_trunc('hour', created) AS hour,
                     AVG(hashrate) AS avg_hashrate,
                     AVG(sharespersecond) AS avg_sharespersecond
-                FROM shares
+                FROM minerstats
                 WHERE miner = :address
                     AND created >= :start_date
                     AND created < :end_date
