@@ -261,7 +261,7 @@ async def get_worker_performance(address: str, db: SessionLocal = Depends(get_db
 
 
 @app.get("/sigscore/live/{address}")
-async def get_miner_stats_by_address(address: str, db: Session = Depends(get_db)):
+async def get_miner_stats_by_address(address: str, db: SessionLocal = Depends(get_db)):
     try:
         query = text("""
             WITH latest_entry AS (
