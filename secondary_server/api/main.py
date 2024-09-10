@@ -124,7 +124,7 @@ def get_address_column(table_name: str) -> str:
     }
     return address_columns.get(table_name, "address")
 
-@app.get("/sigscore/live_miner_data")
+@app.get("/sigscore/live")
 async def get_miner_stats(db: SessionLocal = Depends(get_db)):
     try:
         query = text("""
