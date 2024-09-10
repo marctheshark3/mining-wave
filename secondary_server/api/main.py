@@ -203,13 +203,13 @@ async def get_sigscore_miner_stats(address: str, db: SessionLocal = Depends(get_
         raise HTTPException(status_code=500, detail=f"Error fetching SigScore miner stats: {str(e)}")
 
 @app.get("/sigscore/live/{address}")
-async def get_worker_performance(address: str, start_date: str = Query(...), end_date: str = Query(...), db: SessionLocal = Depends(get_db)):
+async def get_worker_performance(address: str, db: SessionLocal = Depends(get_db)):
     try:
-        # Convert start_date and end_date to datetime objects
-        start_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        end_datetime = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        # Calculate the start and end times for the last 24 hours
+        end_datetime = datetime.utcnow()
+        start_datetime = end_datetime - timedelta(hours=24)
 
-        # Query to get hourly performance data for each worker
+        # Query to get hourly performance data for each worker over the last 24 hours
         query = text("""
             WITH hourly_data AS (
                 SELECT 
@@ -218,7 +218,7 @@ async def get_worker_performance(address: str, start_date: str = Query(...), end
                     date_trunc('hour', created) AS hour,
                     AVG(hashrate) AS avg_hashrate,
                     AVG(sharespersecond) AS avg_sharespersecond
-                FROM minerstats
+                FROM shares
                 WHERE miner = :address
                     AND created >= :start_date
                     AND created < :end_date
@@ -253,11 +253,12 @@ async def get_worker_performance(address: str, start_date: str = Query(...), end
                 "sharesPerSecond": float(row.avg_sharespersecond)
             })
 
-        logger.info(f"Retrieved worker performance data for address: {address}")
+        logger.info(f"Retrieved last 24 hours of worker performance data for address: {address}")
         return performance_data
     except Exception as e:
         logger.error(f"Error fetching worker performance data for address {address}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching worker performance data: {str(e)}")
+        
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
