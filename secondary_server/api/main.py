@@ -98,8 +98,9 @@ async def get_filtered_table_data(
         miner_tables = ['minerstats']
         if table_name in miner_tables:
             query = text(f"SELECT * FROM {table_name} WHERE {address_column} = :miner LIMIT :limit")
-        # Use text() to create a safe SQL query with parameter binding
-        query = text(f"SELECT * FROM {table_name} WHERE {address_column} = :address LIMIT :limit")
+        else:
+            # Use text() to create a safe SQL query with parameter binding
+            query = text(f"SELECT * FROM {table_name} WHERE {address_column} = :address LIMIT :limit")
         result = db.execute(query, {"address": address, "limit": limit})
         
         columns = result.keys()
