@@ -297,6 +297,107 @@ async def get_miner_stats_by_address(address: str, db: SessionLocal = Depends(ge
     except Exception as e:
         logger.error(f"Error fetching miner stats for address {address}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching miner stats for address {address}: {str(e)}")
+
+
+@app.get("/sigscore/miners")
+async def get_all_miners(
+    db: SessionLocal = Depends(get_db),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0)
+):
+    try:
+        query = text("""
+            SELECT DISTINCT miner, 
+                   (SELECT hashrate FROM minerstats WHERE miner = m.miner ORDER BY created DESC LIMIT 1) as hashrate
+            FROM minerstats m
+            ORDER BY hashrate DESC NULLS LAST
+            LIMIT :limit OFFSET :offset
+        """)
+        result = db.execute(query, {"limit": limit, "offset": offset})
+        
+        miners = [{"address": row.miner, "hashrate": row.hashrate} for row in result]
+        
+        logger.info(f"Retrieved {len(miners)} miners")
+        return miners
+    except Exception as e:
+        logger.error(f"Error fetching miners: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching miners: {str(e)}")
+
+@app.get("/sigscore/miners/{address}")
+async def get_miner_details(address: str, db: SessionLocal = Depends(get_db)):
+    try:
+        # Reuse the existing get_sigscore_miner_stats function
+        miner_stats = await get_sigscore_miner_stats(address, db)
+        
+        # Add additional information like total hashrate and worker count
+        workers_query = text("""
+            SELECT COUNT(DISTINCT worker) as worker_count, 
+                   SUM(hashrate) as total_hashrate
+            FROM minerstats
+            WHERE miner = :address
+            AND created >= NOW() - INTERVAL '1 hour'
+        """)
+        workers_result = db.execute(workers_query, {"address": address}).fetchone()
+        
+        miner_stats.update({
+            "worker_count": workers_result.worker_count,
+            "total_hashrate": workers_result.total_hashrate
+        })
+        
+        logger.info(f"Retrieved detailed miner information for address: {address}")
+        return miner_stats
+    except Exception as e:
+        logger.error(f"Error fetching miner details for address {address}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching miner details: {str(e)}")
+
+@app.get("/sigscore/miners/{address}/workers")
+async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)):
+    try:
+        query = text("""
+            SELECT worker, 
+                   AVG(hashrate) as avg_hashrate, 
+                   MAX(created) as last_seen
+            FROM minerstats
+            WHERE miner = :address
+            AND created >= NOW() - INTERVAL '24 hours'
+            GROUP BY worker
+            ORDER BY avg_hashrate DESC
+        """)
+        result = db.execute(query, {"address": address})
+        
+        workers = [{"worker": row.worker, "avg_hashrate": row.avg_hashrate, "last_seen": row.last_seen.isoformat()} for row in result]
+        
+        logger.info(f"Retrieved {len(workers)} workers for miner address: {address}")
+        return workers
+    except Exception as e:
+        logger.error(f"Error fetching worker data for address {address}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching worker data: {str(e)}")
+
+@app.get("/sigscore/miners/top")
+async def get_top_miners(
+    db: SessionLocal = Depends(get_db),
+    limit: int = Query(10, ge=1, le=100)
+):
+    try:
+        query = text("""
+            SELECT miner, hashrate
+            FROM (
+                SELECT DISTINCT ON (miner) miner, hashrate
+                FROM minerstats
+                ORDER BY miner, created DESC
+            ) as latest_stats
+            ORDER BY hashrate DESC
+            LIMIT :limit
+        """)
+        result = db.execute(query, {"limit": limit})
+        
+        top_miners = [{"address": row.miner, "hashrate": row.hashrate} for row in result]
+        
+        logger.info(f"Retrieved top {len(top_miners)} miners")
+        return top_miners
+    except Exception as e:
+        logger.error(f"Error fetching top miners: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching top miners: {str(e)}")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
