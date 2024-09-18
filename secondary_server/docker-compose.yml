@@ -1,9 +1,9 @@
 version: '3'
 
 services:
-  postgres_secondary:
+  mirror:
     image: postgres:12
-    container_name: postgres_secondary
+    container_name: mirror
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -35,9 +35,9 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_HOST=postgres_secondary
+      - DB_HOST=mirror
       - DB_PORT=5432
     depends_on:
-      postgres_secondary:
+      mirror:
         condition: service_healthy
     restart: unless-stopped
