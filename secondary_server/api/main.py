@@ -171,6 +171,7 @@ async def get_all_miners(
                 ORDER BY miner, worker, created DESC
             ) as latest_worker_stats
             GROUP BY miner
+            HAVING SUM(hashrate) > 0  -- Filter out miners with 0 hashrate
         ),
         latest_blocks AS (
             SELECT DISTINCT ON (miner) miner, created as last_block_found
@@ -185,7 +186,7 @@ async def get_all_miners(
             lb.last_block_found
         FROM latest_stats ls
         LEFT JOIN latest_blocks lb ON ls.miner = lb.miner
-        ORDER BY ls.total_hashrate DESC NULLS LAST
+        ORDER BY ls.total_hashrate DESC
         LIMIT :limit OFFSET :offset
     """)
     result = execute_query(db, query, {"limit": limit, "offset": offset})
@@ -198,7 +199,7 @@ async def get_all_miners(
         "last_block_found": row.last_block_found.isoformat() if row.last_block_found else None
     } for row in result]
     
-    logger.info(f"Retrieved {len(miners)} miners with total hashrate, shares per second, and last block found timestamp")
+    logger.info(f"Retrieved {len(miners)} miners with non-zero hashrate, including total hashrate, shares per second, and last block found timestamp")
     return miners
 
 @app.get("/sigscore/miners/top")
