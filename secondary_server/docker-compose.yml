@@ -13,6 +13,8 @@ services:
       - ./conf/postgresql.conf:/etc/postgresql/postgresql.conf
       - ./conf/pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
       - ./conf/pg_ident.conf:/var/lib/postgresql/data/pg_ident.conf
+      - ./conf/miner_settings.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
     ports:
       - "5434:5432"
     command: 
@@ -41,3 +43,6 @@ services:
       mirror:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  postgres_data:
