@@ -7,6 +7,13 @@ from dotenv import load_dotenv
 from sqlalchemy.sql import text
 import logging
 from datetime import datetime, timedelta
+from pydantic import BaseModel
+from typing import Optional
+
+
+class MinerSettings(BaseModel):
+    minimum_payout_threshold: float
+    swapping: bool
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -353,6 +360,38 @@ async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)):
 
     logger.info(f"Retrieved 24-hour hourly data for workers of miner address: {address}")
     return workers_data
+
+@app.get("/miner_settings/{miner_address}")
+async def get_miner_settings(miner_address: str, db: SessionLocal = Depends(get_db)):
+    query = text("SELECT * FROM miner_payouts WHERE miner_address = :miner_address")
+    result = execute_query(db, query, {"miner_address": miner_address})
+    settings = result.fetchone()
+    if settings is None:
+        raise HTTPException(status_code=404, detail="Miner settings not found")
+    return {
+        "miner_address": settings.miner_address,
+        "minimum_payout_threshold": float(settings.minimum_payout_threshold),
+        "swapping": settings.swapping,
+        "created_at": settings.created_at.isoformat()
+    }
+
+@app.post("/miner_settings/{miner_address}")
+async def update_miner_settings(miner_address: str, settings: MinerSettings, db: SessionLocal = Depends(get_db)):
+    query = text("""
+        INSERT INTO miner_payouts (miner_address, minimum_payout_threshold, swapping)
+        VALUES (:miner_address, :minimum_payout_threshold, :swapping)
+        ON CONFLICT (miner_address) DO UPDATE
+        SET minimum_payout_threshold = :minimum_payout_threshold,
+            swapping = :swapping,
+            created_at = CURRENT_TIMESTAMP
+    """)
+    execute_query(db, query, {
+        "miner_address": miner_address,
+        "minimum_payout_threshold": settings.minimum_payout_threshold,
+        "swapping": settings.swapping
+    })
+    db.commit()
+    return {"status": "success", "message": "Miner settings updated"}
 
 if __name__ == "__main__":
     import uvicorn
