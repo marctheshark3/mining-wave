@@ -1,7 +1,6 @@
 import os
 import time
 import schedule
-import requests
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -15,37 +14,38 @@ DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-API_URL = "http://sigscore:8000/sigscore/miner_setting"
-
-def update_miner_settings():
-    print("Updating miner settings...")
+def update_miner_setting(miner_address: str, minimum_payout_threshold: float, swapping: bool):
+    print(f"Updating settings for miner: {miner_address}")
     try:
-        # Fetch current settings from the API
-        response = requests.get(API_URL)
-        if response.status_code == 200:
-            current_settings = response.json()
-            
-            # Update settings in the database
-            with SessionLocal() as db:
-                for setting in current_settings:
-                    query = text("""
-                        INSERT INTO miner_payouts (miner_address, minimum_payout_threshold, swapping)
-                        VALUES (:miner_address, :minimum_payout_threshold, :swapping)
-                        ON CONFLICT (miner_address) DO UPDATE
-                        SET minimum_payout_threshold = :minimum_payout_threshold,
-                            swapping = :swapping,
-                            created_at = CURRENT_TIMESTAMP
-                    """)
-                    db.execute(query, setting)
-                db.commit()
-            print("Miner settings updated successfully.")
-        else:
-            print(f"Failed to fetch miner settings. Status code: {response.status_code}")
+        with SessionLocal() as db:
+            query = text("""
+                INSERT INTO miner_payouts (miner_address, minimum_payout_threshold, swapping)
+                VALUES (:miner_address, :minimum_payout_threshold, :swapping)
+                ON CONFLICT (miner_address) DO UPDATE
+                SET minimum_payout_threshold = :minimum_payout_threshold,
+                    swapping = :swapping,
+                    created_at = CURRENT_TIMESTAMP
+            """)
+            db.execute(query, {
+                "miner_address": miner_address,
+                "minimum_payout_threshold": minimum_payout_threshold,
+                "swapping": swapping
+            })
+            db.commit()
+        print(f"Settings updated successfully for miner: {miner_address}")
     except Exception as e:
-        print(f"An error occurred while updating miner settings: {str(e)}")
+        print(f"An error occurred while updating settings for miner {miner_address}: {str(e)}")
+
+def update_all_miners():
+    # You can call update_miner_setting for each miner here
+    # For example:
+    # update_miner_setting("9iNFqptqcnMQL4BEtVgjnsJGqiJFDb6xm1pzPCKCJvvnwuYD1Jo", 2.0, True)
+    # update_miner_setting("9hrFxcVeaNeBYXUx69nbUJkQHE5PgYpdscKPLNo6z6zKkUVNBmE", 20.5, False)
+    # Add more miners as needed
+    pass
 
 def run_scheduler():
-    schedule.every(30).minutes.do(update_miner_settings)
+    schedule.every(30).minutes.do(update_all_miners)
     
     while True:
         schedule.run_pending()
