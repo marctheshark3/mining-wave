@@ -1,5 +1,4 @@
 version: '3'
-
 services:
   mirror:
     image: postgres:12
@@ -39,3 +38,18 @@ services:
       - DB_PORT=5432
     restart: unless-stopped
 
+  updater:
+    build:
+      context: ./updater
+      dockerfile: Dockerfile
+    container_name: miner_settings_updater
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=5432
+    depends_on:
+      - mirror
+      - api
+    restart: unless-stopped
