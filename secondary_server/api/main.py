@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
-from sqlalchemy import create_engine, MetaData, Table
+from sqlalchemy import create_engine, MetaData, Table, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import os
@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 from sqlalchemy.sql import text
 import logging
 from datetime import datetime, timedelta
+
+from pydantic import BaseModel
+from typing import List, Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -353,6 +356,53 @@ async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)):
 
     logger.info(f"Retrieved 24-hour hourly data for workers of miner address: {address}")
     return workers_data
+
+
+class MinerSettings(BaseModel):
+    miner_address: str
+    minimum_payout_threshold: float
+    swapping: bool
+    created_at: str
+
+@app.get("/sigscore/miner_setting", response_model=List[MinerSettings])
+async def get_all_miner_settings(
+    db: SessionLocal = Depends(get_db),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0)
+):
+    query = text("""
+        SELECT miner_address, minimum_payout_threshold, swapping, created_at
+        FROM miner_payouts
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    result = execute_query(db, query, {"limit": limit, "offset": offset})
+    
+    settings = [
+        {
+            "miner_address": row.miner_address,
+            "minimum_payout_threshold": float(row.minimum_payout_threshold),
+            "swapping": row.swapping,
+            "created_at": row.created_at.isoformat()
+        }
+        for row in result
+    ]
+    
+    return settings
+    
+@app.get("/sigscore/miner_setting/{miner_address}", response_model=MinerSettings)
+async def get_miner_setting(miner_address: str, db: SessionLocal = Depends(get_db)):
+    query = text("SELECT * FROM miner_payouts WHERE miner_address = :miner_address")
+    result = execute_query(db, query, {"miner_address": miner_address})
+    settings = result.fetchone()
+    if settings is None:
+        raise HTTPException(status_code=404, detail="Miner settings not found")
+    return {
+        "miner_address": settings.miner_address,
+        "minimum_payout_threshold": float(settings.minimum_payout_threshold),
+        "swapping": settings.swapping,
+        "created_at": settings.created_at.isoformat()
+    }
 
 if __name__ == "__main__":
     import uvicorn
