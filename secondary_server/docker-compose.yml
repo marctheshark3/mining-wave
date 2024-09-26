@@ -15,7 +15,7 @@ services:
       - ./conf/pg_ident.conf:/var/lib/postgresql/data/pg_ident.conf
     ports:
       - "5434:5432"
-    command: 
+    command:
       - "postgres"
       - "-c"
       - "config_file=/etc/postgresql/postgresql.conf"
@@ -28,16 +28,14 @@ services:
 
   api:
     build: ./api
-    container_name: fastapi_service
+    container_name: sigscore
     ports:
       - "8000:8000"
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_HOST=mirror
+      - DB_HOST=${DB_HOST}
       - DB_PORT=5432
-    depends_on:
-      mirror:
-        condition: service_healthy
     restart: unless-stopped
+
