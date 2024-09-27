@@ -19,7 +19,7 @@ def update_miner_setting(miner_address: str, minimum_payout_threshold: float, sw
     try:
         with SessionLocal() as db:
             query = text("""
-                INSERT INTO miner_payouts (miner_address, minimum_payout_threshold, swapping)
+                INSERT INTO sigscore_miner_payouts (miner_address, minimum_payout_threshold, swapping)
                 VALUES (:miner_address, :minimum_payout_threshold, :swapping)
                 ON CONFLICT (miner_address) DO UPDATE
                 SET minimum_payout_threshold = :minimum_payout_threshold,

@@ -34,22 +34,22 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_HOST=${DB_HOST}
+      - DB_HOST=mirror
       - DB_PORT=5432
+    depends_on:
+      - mirror
     restart: unless-stopped
 
-  updater:
-    build:
-      context: ./updater
-      dockerfile: Dockerfile
-    container_name: miner_settings_updater
+  init-mirror:
+    image: postgres:12
+    volumes:
+      - ./init-scripts/init-mirror.sh:/init-mirror.sh
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
+      - PRIMARY_HOST=${PRIMARY_HOST}
+      - PRIMARY_PORT=${PRIMARY_PORT}
+    command: ["/bin/bash", "/init-mirror.sh"]
     depends_on:
       - mirror
-      - api
-    restart: unless-stopped
