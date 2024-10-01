@@ -372,7 +372,7 @@ async def get_all_miner_settings(
 ):
     query = text("""
         SELECT miner_address, minimum_payout_threshold, swapping, created_at
-        FROM sigscore_miner_payouts
+        FROM miner_payouts
         ORDER BY created_at DESC
         LIMIT :limit OFFSET :offset
     """)
@@ -392,7 +392,7 @@ async def get_all_miner_settings(
     
 @app.get("/sigscore/miner_setting/{miner_address}", response_model=MinerSettings)
 async def get_miner_setting(miner_address: str, db: SessionLocal = Depends(get_db)):
-    query = text("SELECT * FROM sigscore_miner_payouts WHERE miner_address = :miner_address")
+    query = text("SELECT * FROM miner_payouts WHERE miner_address = :miner_address")
     result = execute_query(db, query, {"miner_address": miner_address})
     settings = result.fetchone()
     if settings is None:
