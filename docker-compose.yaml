@@ -1,0 +1,16 @@
+version: '3'
+services:
+  api:
+    build: .
+    container_name: MiningWave-API
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST:-host.docker.internal}  # Use host.docker.internal as default
+      - DB_PORT=5432
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # This line is for Linux hosts
