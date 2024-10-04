@@ -155,19 +155,19 @@ async def get_all_miners(
     offset: int = Query(0, ge=0)
 ):
     query = text("""
-        WITH latest_stats AS (
+        WITH latest_timestamp AS (
+            SELECT MAX(created) as max_created
+            FROM minerstats
+        ),
+        latest_stats AS (
             SELECT 
                 miner,
                 SUM(hashrate) as total_hashrate,
-                SUM(sharespersecond) as total_sharespersecond,
-                MAX(created) as last_stat_time
-            FROM (
-                SELECT DISTINCT ON (miner, worker) miner, worker, hashrate, sharespersecond, created
-                FROM minerstats
-                ORDER BY miner, worker, created DESC
-            ) as latest_worker_stats
+                SUM(sharespersecond) as total_sharespersecond
+            FROM minerstats
+            WHERE created = (SELECT max_created FROM latest_timestamp)
             GROUP BY miner
-            HAVING SUM(hashrate) > 0  -- Filter out miners with 0 hashrate
+            HAVING SUM(hashrate) > 0
         ),
         latest_blocks AS (
             SELECT DISTINCT ON (miner) miner, created as last_block_found
@@ -178,7 +178,7 @@ async def get_all_miners(
             ls.miner, 
             ls.total_hashrate, 
             ls.total_sharespersecond,
-            ls.last_stat_time,
+            (SELECT max_created FROM latest_timestamp) as last_stat_time,
             lb.last_block_found
         FROM latest_stats ls
         LEFT JOIN latest_blocks lb ON ls.miner = lb.miner
@@ -195,7 +195,7 @@ async def get_all_miners(
         "last_block_found": row.last_block_found.isoformat() if row.last_block_found else None
     } for row in result]
     
-    logger.info(f"Retrieved {len(miners)} active miners with total hashrate, shares per second, and last block found timestamp")
+    logger.info(f"Retrieved {len(miners)} active miners for the latest timestamp")
     return miners
 
 @app.get("/sigscore/miners/top")
