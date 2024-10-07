@@ -356,6 +356,8 @@ async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)):
         })
 
     logger.info(f"Retrieved 24-hour hourly data for workers of miner address: {address}")
+    if workers_data == {}:
+        logger.warn('No Data SAVED. {}'.format(result))
     return workers_data
 
 
