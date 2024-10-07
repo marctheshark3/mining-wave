@@ -316,58 +316,55 @@ from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException
 from typing import Dict, List, Any
 
-@app.get("/sigscore/miners/{address}/workers")
-async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:
+@app.get("/sigscore/miners/{address}/workers") # @app.get("/sigscore/miners/{address}/history")
+async def get_miner_worker_history(address: str, db: SessionLocal = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:
     end_time = datetime.utcnow()
-    start_time = end_time - timedelta(hours=24)
+    start_time = end_time - timedelta(days=5)
     
     query = text("""
         WITH hourly_data AS (
             SELECT 
-                worker,
                 date_trunc('hour', created) AS hour,
+                worker,
                 AVG(hashrate) AS avg_hashrate,
                 AVG(sharespersecond) AS avg_sharespersecond
             FROM minerstats
             WHERE miner = :address
-                AND created >= :start_time
+                AND created >= :start_time 
                 AND created < :end_time
-            GROUP BY worker, date_trunc('hour', created)
+            GROUP BY date_trunc('hour', created), worker
         )
         SELECT 
-            worker,
             hour,
+            worker,
             avg_hashrate,
             avg_sharespersecond
         FROM hourly_data
-        ORDER BY worker, hour
+        ORDER BY hour, worker
     """)
     
     try:
-        result = db.execute(query, {
-            "address": address,
-            "start_time": start_time,
-            "end_time": end_time
-        })
+        result = db.execute(query, {"address": address, "start_time": start_time, "end_time": end_time})
         
-        workers_data: Dict[str, List[Dict[str, Any]]] = {}
+        miner_history: Dict[str, List[Dict[str, Any]]] = {}
+        
         for row in result:
             worker = row.worker
-            hour = row.hour.isoformat()
-            if worker not in workers_data:
-                workers_data[worker] = []
-            workers_data[worker].append({
-                "created": hour,
+            if worker not in miner_history:
+                miner_history[worker] = []
+            
+            miner_history[worker].append({
+                "timestamp": row.hour.isoformat(),
                 "hashrate": float(row.avg_hashrate),
                 "sharesPerSecond": float(row.avg_sharespersecond)
             })
         
-        if not workers_data:
-            logger.warning(f"No data found for miner address: {address} in the last 24 hours.")
+        if not miner_history:
+            logger.warning(f"No data found for miner {address} in the last 5 days.")
             return {}
         
-        logger.info(f"Retrieved 24-hour hourly data for {len(workers_data)} workers of miner address: {address}")
-        return workers_data
+        logger.info(f"Retrieved 5-day hourly history for miner {address} with {len(miner_history)} workers")
+        return miner_history
     
     except SQLAlchemyError as e:
         logger.error(f"Database error occurred: {str(e)}")
