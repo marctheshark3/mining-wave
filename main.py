@@ -310,8 +310,14 @@ async def get_miner_details(address: str, db: SessionLocal = Depends(get_db)):
     logger.info(f"Retrieved detailed miner information for address: {address}")
     return miner_stats
 
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from datetime import datetime, timedelta
+from fastapi import Depends, HTTPException
+from typing import Dict, List, Any
+
 @app.get("/sigscore/miners/{address}/workers")
-async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)):
+async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(hours=24)
     
@@ -337,28 +343,38 @@ async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)):
         ORDER BY worker, hour
     """)
     
-    result = execute_query(db, query, {
-        "address": address,
-        "start_time": start_time,
-        "end_time": end_time
-    })
-
-    workers_data = {}
-    for row in result:
-        worker = row.worker
-        hour = row.hour.isoformat()
-        if worker not in workers_data:
-            workers_data[worker] = []
-        workers_data[worker].append({
-            "created": hour,
-            "hashrate": float(row.avg_hashrate),
-            "sharesPerSecond": float(row.avg_sharespersecond)
+    try:
+        result = db.execute(query, {
+            "address": address,
+            "start_time": start_time,
+            "end_time": end_time
         })
-
-    logger.info(f"Retrieved 24-hour hourly data for workers of miner address: {address}")
-    if workers_data == {}:
-        logger.warn('No Data SAVED. {}'.format(result))
-    return workers_data
+        
+        workers_data: Dict[str, List[Dict[str, Any]]] = {}
+        for row in result:
+            worker = row.worker
+            hour = row.hour.isoformat()
+            if worker not in workers_data:
+                workers_data[worker] = []
+            workers_data[worker].append({
+                "created": hour,
+                "hashrate": float(row.avg_hashrate),
+                "sharesPerSecond": float(row.avg_sharespersecond)
+            })
+        
+        if not workers_data:
+            logger.warning(f"No data found for miner address: {address} in the last 24 hours.")
+            return {}
+        
+        logger.info(f"Retrieved 24-hour hourly data for {len(workers_data)} workers of miner address: {address}")
+        return workers_data
+    
+    except SQLAlchemyError as e:
+        logger.error(f"Database error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as e:
+        logger.error(f"Unexpected error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 class MinerSettings(BaseModel):
