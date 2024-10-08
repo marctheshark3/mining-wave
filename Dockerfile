@@ -2,13 +2,17 @@ FROM python:3.9
 
 WORKDIR /app
 
-COPY ../requirements.txt .
+# Copy the requirements file
+COPY requirements.txt .
+
+# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
+# Copy the entire application
+COPY . .
 
-# Add this line to ensure Python output isn't buffered
+# Ensure Python output isn't buffered
 ENV PYTHONUNBUFFERED=1
 
-# Change the CMD to use the --reload flag and add some logging
+# Command to run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]
