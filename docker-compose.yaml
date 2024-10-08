@@ -6,16 +6,23 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - POSTGRES_DB=${DB_NAME}
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST:-host.docker.internal}
-      - DB_PORT=5432
+      - DB_PORT=${DB_PORT:-5432}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - PYTHONUNBUFFERED=1
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./:/app
-    # Override the CMD in Dockerfile for additional logging
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:6
+    ports:
+      - "6379:6379"
