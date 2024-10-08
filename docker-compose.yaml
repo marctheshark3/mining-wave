@@ -26,3 +26,12 @@ services:
     image: redis:6
     ports:
       - "6379:6379"
+    sysctls:
+      - net.core.somaxconn=511
+      - vm.overcommit_memory=1
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
