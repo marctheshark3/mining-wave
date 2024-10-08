@@ -7,7 +7,7 @@ import os
 load_dotenv()
 
 class Settings(BaseSettings):
-    DB_HOST: str = os.getenv("DB_HOST", "postgres_secondary")
+    DB_HOST: str = os.getenv("DB_HOST", "")
     DB_PORT: str = os.getenv("DB_PORT", "5432")
     POSTGRES_USER: str = os.getenv("DB_USER")
     POSTGRES_PASSWORD: str = os.getenv("DB_PASSWORD")

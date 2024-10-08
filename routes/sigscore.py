@@ -186,3 +186,109 @@ async def get_miner_details(address: str, db=Depends(create_db_pool)):
     
     logger.info(f"Retrieved detailed miner information for address: {address}")
     return miner_stats
+
+@router.get("/miners/{address}/workers")
+async def get_miner_worker_history(address: str, db=Depends(create_db_pool)) -> Dict[str, List[Dict[str, Any]]]:
+    end_time = datetime.utcnow()
+    start_time = end_time - timedelta(days=5)
+    
+    query = """
+        WITH hourly_data AS (
+            SELECT 
+                date_trunc('hour', created) AS hour,
+                worker,
+                AVG(hashrate) AS avg_hashrate,
+                AVG(sharespersecond) AS avg_sharespersecond
+            FROM minerstats
+            WHERE miner = $1
+                AND created >= $2 
+                AND created < $3
+            GROUP BY date_trunc('hour', created), worker
+        )
+        SELECT 
+            hour,
+            worker,
+            avg_hashrate,
+            avg_sharespersecond
+        FROM hourly_data
+        ORDER BY hour, worker
+    """
+    
+    try:
+        async with db.acquire() as conn:
+            rows = await conn.fetch(query, address, start_time, end_time)
+        
+        miner_history: Dict[str, List[Dict[str, Any]]] = {}
+        
+        for row in rows:
+            worker = row['worker']
+            if worker not in miner_history:
+                miner_history[worker] = []
+            
+            miner_history[worker].append({
+                "timestamp": row['hour'].isoformat(),
+                "hashrate": float(row['avg_hashrate']),
+                "sharesPerSecond": float(row['avg_sharespersecond'])
+            })
+        
+        if not miner_history:
+            logger.warning(f"No data found for miner {address} in the last 5 days.")
+            return {}
+        
+        logger.info(f"Retrieved 5-day hourly history for miner {address} with {len(miner_history)} workers")
+        return miner_history
+    
+    except Exception as e:
+        logger.error(f"Error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+class MinerSettings(BaseModel):
+    miner_address: str
+    minimum_payout_threshold: float
+    swapping: bool
+    created_at: str
+
+@router.get("/miner_setting", response_model=List[MinerSettings])
+async def get_all_miner_settings(
+    db=Depends(create_db_pool),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0)
+):
+    query = """
+        SELECT miner_address, minimum_payout_threshold, swapping, created_at
+        FROM miner_payouts
+        ORDER BY created_at DESC
+        LIMIT $1 OFFSET $2
+    """
+    
+    async with db.acquire() as conn:
+        rows = await conn.fetch(query, limit, offset)
+    
+    settings = [
+        MinerSettings(
+            miner_address=row['miner_address'],
+            minimum_payout_threshold=float(row['minimum_payout_threshold']),
+            swapping=row['swapping'],
+            created_at=row['created_at'].isoformat()
+        )
+        for row in rows
+    ]
+    
+    return settings
+
+@router.get("/miner_setting/{miner_address}", response_model=MinerSettings)
+async def get_miner_setting(miner_address: str, db=Depends(create_db_pool)):
+    query = "SELECT * FROM miner_payouts WHERE miner_address = $1"
+    
+    async with db.acquire() as conn:
+        row = await conn.fetchrow(query, miner_address)
+    
+    if row is None:
+        raise HTTPException(status_code=404, detail="Miner settings not found")
+    
+    return MinerSettings(
+        miner_address=row['miner_address'],
+        minimum_payout_threshold=float(row['minimum_payout_threshold']),
+        swapping=row['swapping'],
+        created_at=row['created_at'].isoformat()
+    )
