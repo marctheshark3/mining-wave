@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: mining-wave-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - REDIS_URL=${REDIS_URL}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - redis
+    networks:
+      - mining-wave-network
+
+  redis:
+    image: redis:6.2-alpine
+    container_name: mining-wave-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - mining-wave-network
+
+networks:
+  mining-wave-network:
+    driver: bridge
+
+volumes:
+  redis_data:
