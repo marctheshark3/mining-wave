@@ -1,119 +1,123 @@
 # MiningWave API
 
-This project provides a FastAPI-based API for retrieving mining-related data from a PostgreSQL database.
+FastAPI-based microservice for crypto mining pool metrics and management. Features real-time monitoring, worker statistics, and rewards distribution.
 
-## Setup and Deployment
+## Quick Start
 
 ### Prerequisites
+- Docker and Docker Compose
+- PostgreSQL database instance
+- Redis (automatically handled by Docker Compose)
 
-- Docker and Docker Compose installed on your system
-- PostgreSQL database with mining data
-
-### Environment Variables
-
-Create a `.env` file in the project root with the following variables:
-
+### Configuration
+Create a `.env` file:
+```env
+DB_NAME=miningcore
+DB_USER=miningcore
+DB_PASSWORD=your_password
+DB_HOST=your_host
+DB_PORT=5432
+REDIS_URL=redis://redis:6379
 ```
-DB_NAME=your_database_name
-DB_USER=your_database_user
-DB_PASSWORD=your_database_password
-DB_HOST=your_database_host
-```
 
-### Running the API
-
-1. Build and start the Docker container:
-
+### Deployment
 ```bash
+# Start services
 docker-compose up -d
-```
 
-2. The API will be available at `http://localhost:8000`
-
-### Stopping the API
-
-To stop the Docker container:
-
-```bash
+# Stop services
 docker-compose down
 ```
 
+The API will be available at `http://localhost:8000`
+
 ## API Endpoints
 
-### Root
-
-- **GET /** 
-  - Returns a welcome message
-  - Response: `{"message": "Welcome to the Mining Core API"}`
-
-### Database Information
-
-- **GET /tables**
-  - Lists all tables in the connected database
-  - Response: `{"tables": ["table1", "table2", ...]}`
-
-- **GET /test_db_connection**
-  - Tests the database connection
-  - Response: `{"status": "Database connection successful", "result": 1}`
-
-### Mining Data
-
-- **GET /miningcore/{table_name}**
-  - Retrieves all data from the specified table
-  - Response: Array of objects representing table rows
-
-- **GET /miningcore/{table_name}/{address}**
-  - Retrieves filtered data from the specified table for a given address
-  - Query Parameters:
-    - `limit`: Number of rows to return (default: 100, max: 1000)
-  - Response: Array of objects representing filtered table rows
+### Core Endpoints
+- `GET /` - API health check
+- `GET /tables` - List available database tables
+- `GET /test_db_connection` - Test database connectivity
 
 ### Pool Statistics
+- `GET /sigscore/history` - Pool hashrate history (5-day window)
+- `GET /sigscore/miners` - Active miners list with stats
+- `GET /sigscore/miners/top` - Top 20 miners by hashrate
+- `GET /sigscore/miners/bonus` - Loyalty rewards tracking
+  - Monitors miners active 4+ days/week
+  - Minimum 12 hours daily activity
+  - Tracks hashrate contributions
 
-- **GET /sigscore/history**
-  - Retrieves pool hashrate history for the last 5 days
-  - Response: Array of objects with timestamps and total hashrates
+### Miner Management
+- `GET /sigscore/miners/{address}` - Single miner detailed stats
+  - Current hashrate
+  - Balance and payments
+  - Worker performance
+- `GET /sigscore/miners/{address}/workers` - Worker-level metrics
+- `GET /sigscore/miner_setting` - Pool-wide miner settings
+- `GET /sigscore/miner_setting/{address}` - Individual miner settings
 
-- **GET /sigscore/miners**
-  - Retrieves information about all miners
-  - Query Parameters:
-    - `limit`: Number of miners to return (default: 100, max: 1000)
-    - `offset`: Number of miners to skip (default: 0)
-  - Response: Array of objects with miner details
+### Data Access
+- `GET /miningcore/{table_name}` - Raw table data access
+- `GET /miningcore/{table_name}/{address}` - Filtered table data
+  - `limit`: Records per page (max: 1000)
+  - `offset`: Pagination offset
 
-- **GET /sigscore/miners/top**
-  - Retrieves the top 20 miners by hashrate
-  - Response: Array of objects with miner addresses and hashrates
+## Features
 
-- **GET /sigscore/miners/{address}**
-  - Retrieves detailed information about a specific miner
-  - Response: Object with miner statistics, including current hashrate, balance, and worker details
+- Real-time performance monitoring
+- Worker-level statistics tracking
+- Payment and balance management
+- Redis-based caching
+- Rate limiting protection
+- Comprehensive error handling
+- Structured logging
 
-- **GET /sigscore/miners/{address}/workers**
-  - Retrieves 24-hour hourly data for a miner's workers
-  - Response: Object with worker names as keys and arrays of hourly data as values
+## Technical Stack
 
-### Miner Settings
+- **FastAPI**: Modern async web framework
+- **PostgreSQL**: Primary data store
+- **Redis**: Caching and rate limiting
+- **Docker**: Containerization and orchestration
+- **Pydantic**: Data validation
+- **AsyncPG**: Async database operations
 
-- **GET /sigscore/miner_setting**
-  - Retrieves settings for all miners
-  - Query Parameters:
-    - `limit`: Number of settings to return (default: 100, max: 1000)
-    - `offset`: Number of settings to skip (default: 0)
-  - Response: Array of objects with miner settings
+## Development
 
-- **GET /sigscore/miner_setting/{miner_address}**
-  - Retrieves settings for a specific miner
-  - Response: Object with miner address, minimum payout threshold, swapping status, and creation date
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-## Error Handling
+# Run development server
+uvicorn api:app --reload
 
-The API returns appropriate HTTP status codes and error messages for invalid requests or server errors.
+# Access API documentation
+http://localhost:8000/docs
+```
 
-## Logging
+## Security
 
-The API logs important events and errors for monitoring and debugging purposes.
+- Environment variables for sensitive data
+- Rate limiting on all endpoints
+- CORS protection configured
+- Connection pooling for database
+- Cached responses for high-traffic endpoints
 
-## Security Note
+## Monitoring
 
-Ensure that your `.env` file and database credentials are kept secure and not exposed publicly.
+The API includes comprehensive logging:
+- Performance metrics
+- Error tracking
+- Access patterns
+- System health status
+
+## Production Notes
+
+- Secure your `.env` file
+- Adjust rate limits for production load
+- Configure appropriate CORS settings
+- Monitor Redis memory usage
+- Set up proper database backups
+
+## License
+
+This project is proprietary and confidential. Unauthorized copying, distribution, or use is strictly prohibited.

@@ -4,9 +4,108 @@ from database import create_db_pool
 from utils.logging import logger
 from datetime import datetime, timedelta
 from fastapi_cache.decorator import cache
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from fastapi import Query
+from pydantic import BaseModel
+
 
 router = APIRouter(prefix="/sigscore")
+
+
+class LoyalMiner(BaseModel):
+    address: str
+    days_active: int
+    weekly_avg_hashrate: float
+    current_balance: float
+    last_payment: Optional[str]
+
+@router.get("/miners/bonus", response_model=List[LoyalMiner])
+async def get_weekly_loyal_miners(
+    db=Depends(create_db_pool),
+    limit: int = Query(default=100, ge=1, le=1000)
+) -> List[Dict[str, Any]]:
+    """
+    Get miners who have been active for at least 4 out of the last 7 days,
+    with at least 12 hours of activity per active day.
+    """
+    
+    end_time = datetime.utcnow()
+    start_time = end_time - timedelta(days=7)
+    
+    query = """
+    WITH hourly_activity AS (
+        -- Get hourly averages for each miner
+        SELECT 
+            miner,
+            date_trunc('hour', created) AS hour,
+            DATE(created) AS day,
+            AVG(hashrate) AS avg_hashrate
+        FROM minerstats
+        WHERE created >= $1 AND created <= $2
+        GROUP BY miner, date_trunc('hour', created), DATE(created)
+        HAVING AVG(hashrate) > 0
+    ),
+    daily_activity AS (
+        -- Count active hours per day for each miner
+        SELECT 
+            miner,
+            day,
+            COUNT(DISTINCT hour) AS active_hours,
+            AVG(avg_hashrate) AS daily_avg_hashrate
+        FROM hourly_activity
+        GROUP BY miner, day
+    ),
+    qualified_miners AS (
+        -- Find miners active for 12+ hours on at least 4 days
+        SELECT 
+            miner,
+            COUNT(DISTINCT day) AS days_active,
+            AVG(daily_avg_hashrate) AS weekly_avg_hashrate
+        FROM daily_activity
+        WHERE active_hours >= 12
+        GROUP BY miner
+        HAVING COUNT(DISTINCT day) >= 4
+    )
+    SELECT 
+        qm.miner,
+        qm.days_active,
+        qm.weekly_avg_hashrate,
+        COALESCE(b.amount, 0) as current_balance,
+        MAX(p.created) as last_payment_date
+    FROM qualified_miners qm
+    LEFT JOIN balances b ON qm.miner = b.address
+    LEFT JOIN payments p ON qm.miner = p.address
+    GROUP BY qm.miner, qm.days_active, qm.weekly_avg_hashrate, b.amount
+    ORDER BY qm.weekly_avg_hashrate DESC
+    LIMIT $3
+    """
+    
+    try:
+        async with db.acquire() as conn:
+            rows = await conn.fetch(query, start_time, end_time, limit)
+            
+            if not rows:
+                # Return empty list instead of raising 404
+                logger.info("No loyal miners found for the given criteria")
+                return []
+        
+        loyal_miners = [
+            LoyalMiner(
+                address=row['miner'],
+                days_active=row['days_active'],
+                weekly_avg_hashrate=float(row['weekly_avg_hashrate']),
+                current_balance=float(row['current_balance']),
+                last_payment=row['last_payment_date'].isoformat() if row['last_payment_date'] else None
+            )
+            for row in rows
+        ]
+        
+        logger.info(f"Retrieved {len(loyal_miners)} miners active for 4+ days in the past week")
+        return loyal_miners
+        
+    except Exception as e:
+        logger.error(f"Error retrieving weekly loyal miners: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get("/history")
 @cache(expire=300)  # Cache for 5 minutes
