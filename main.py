@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
-from sqlalchemy import create_engine, MetaData, Table
+from sqlalchemy import create_engine, MetaData, Table, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import os
@@ -14,6 +14,9 @@ from typing import Optional
 class MinerSettings(BaseModel):
     minimum_payout_threshold: float
     swapping: bool
+
+from pydantic import BaseModel
+from typing import List, Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -159,19 +162,23 @@ async def get_all_miners(
     offset: int = Query(0, ge=0)
 ):
     query = text("""
-        WITH latest_stats AS (
+        WITH latest_timestamp AS (
+            SELECT MAX(created) as max_created
+            FROM minerstats
+        ),
+        latest_stats AS (
             SELECT 
                 miner,
                 SUM(hashrate) as total_hashrate,
-                SUM(sharespersecond) as total_sharespersecond,
-                MAX(created) as last_stat_time
-            FROM (
-                SELECT DISTINCT ON (miner, worker) miner, worker, hashrate, sharespersecond, created
-                FROM minerstats
-                ORDER BY miner, worker, created DESC
-            ) as latest_worker_stats
+                SUM(sharespersecond) as total_sharespersecond
+            FROM minerstats
+            WHERE created = (SELECT max_created FROM latest_timestamp)
             GROUP BY miner
+<<<<<<< HEAD:main.py
+            HAVING SUM(hashrate) > 0
+=======
             HAVING SUM(hashrate) > 0  -- Filter out miners with 0 hashrate
+>>>>>>> main:secondary_server/api/main.py
         ),
         latest_blocks AS (
             SELECT DISTINCT ON (miner) miner, created as last_block_found
@@ -182,7 +189,7 @@ async def get_all_miners(
             ls.miner, 
             ls.total_hashrate, 
             ls.total_sharespersecond,
-            ls.last_stat_time,
+            (SELECT max_created FROM latest_timestamp) as last_stat_time,
             lb.last_block_found
         FROM latest_stats ls
         LEFT JOIN latest_blocks lb ON ls.miner = lb.miner
@@ -199,7 +206,11 @@ async def get_all_miners(
         "last_block_found": row.last_block_found.isoformat() if row.last_block_found else None
     } for row in result]
     
+<<<<<<< HEAD:main.py
+    logger.info(f"Retrieved {len(miners)} active miners for the latest timestamp")
+=======
     logger.info(f"Retrieved {len(miners)} miners with non-zero hashrate, including total hashrate, shares per second, and last block found timestamp")
+>>>>>>> main:secondary_server/api/main.py
     return miners
 
 @app.get("/sigscore/miners/top")
@@ -314,53 +325,115 @@ async def get_miner_details(address: str, db: SessionLocal = Depends(get_db)):
     logger.info(f"Retrieved detailed miner information for address: {address}")
     return miner_stats
 
-@app.get("/sigscore/miners/{address}/workers")
-async def get_miner_workers(address: str, db: SessionLocal = Depends(get_db)):
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from datetime import datetime, timedelta
+from fastapi import Depends, HTTPException
+from typing import Dict, List, Any
+
+@app.get("/sigscore/miners/{address}/workers") # @app.get("/sigscore/miners/{address}/history")
+async def get_miner_worker_history(address: str, db: SessionLocal = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:
     end_time = datetime.utcnow()
-    start_time = end_time - timedelta(hours=24)
+    start_time = end_time - timedelta(days=5)
     
     query = text("""
         WITH hourly_data AS (
             SELECT 
-                worker,
                 date_trunc('hour', created) AS hour,
+                worker,
                 AVG(hashrate) AS avg_hashrate,
                 AVG(sharespersecond) AS avg_sharespersecond
             FROM minerstats
             WHERE miner = :address
-                AND created >= :start_time
+                AND created >= :start_time 
                 AND created < :end_time
-            GROUP BY worker, date_trunc('hour', created)
+            GROUP BY date_trunc('hour', created), worker
         )
         SELECT 
-            worker,
             hour,
+            worker,
             avg_hashrate,
             avg_sharespersecond
         FROM hourly_data
-        ORDER BY worker, hour
+        ORDER BY hour, worker
     """)
     
-    result = execute_query(db, query, {
-        "address": address,
-        "start_time": start_time,
-        "end_time": end_time
-    })
+    try:
+        result = db.execute(query, {"address": address, "start_time": start_time, "end_time": end_time})
+        
+        miner_history: Dict[str, List[Dict[str, Any]]] = {}
+        
+        for row in result:
+            worker = row.worker
+            if worker not in miner_history:
+                miner_history[worker] = []
+            
+            miner_history[worker].append({
+                "timestamp": row.hour.isoformat(),
+                "hashrate": float(row.avg_hashrate),
+                "sharesPerSecond": float(row.avg_sharespersecond)
+            })
+        
+        if not miner_history:
+            logger.warning(f"No data found for miner {address} in the last 5 days.")
+            return {}
+        
+        logger.info(f"Retrieved 5-day hourly history for miner {address} with {len(miner_history)} workers")
+        return miner_history
+    
+    except SQLAlchemyError as e:
+        logger.error(f"Database error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as e:
+        logger.error(f"Unexpected error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-    workers_data = {}
-    for row in result:
-        worker = row.worker
-        hour = row.hour.isoformat()
-        if worker not in workers_data:
-            workers_data[worker] = []
-        workers_data[worker].append({
-            "created": hour,
-            "hashrate": float(row.avg_hashrate),
-            "sharesPerSecond": float(row.avg_sharespersecond)
-        })
 
-    logger.info(f"Retrieved 24-hour hourly data for workers of miner address: {address}")
-    return workers_data
+class MinerSettings(BaseModel):
+    miner_address: str
+    minimum_payout_threshold: float
+    swapping: bool
+    created_at: str
+
+@app.get("/sigscore/miner_setting", response_model=List[MinerSettings])
+async def get_all_miner_settings(
+    db: SessionLocal = Depends(get_db),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0)
+):
+    query = text("""
+        SELECT miner_address, minimum_payout_threshold, swapping, created_at
+        FROM miner_payouts
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    result = execute_query(db, query, {"limit": limit, "offset": offset})
+    
+    settings = [
+        {
+            "miner_address": row.miner_address,
+            "minimum_payout_threshold": float(row.minimum_payout_threshold),
+            "swapping": row.swapping,
+            "created_at": row.created_at.isoformat()
+        }
+        for row in result
+    ]
+    
+    return settings
+    
+@app.get("/sigscore/miner_setting/{miner_address}", response_model=MinerSettings)
+async def get_miner_setting(miner_address: str, db: SessionLocal = Depends(get_db)):
+    query = text("SELECT * FROM miner_payouts WHERE miner_address = :miner_address")
+    result = execute_query(db, query, {"miner_address": miner_address})
+    settings = result.fetchone()
+    if settings is None:
+        raise HTTPException(status_code=404, detail="Miner settings not found")
+    return {
+        "miner_address": settings.miner_address,
+        "minimum_payout_threshold": float(settings.minimum_payout_threshold),
+        "swapping": settings.swapping,
+        "created_at": settings.created_at.isoformat()
+    }
 
 @app.get("/miner_settings/{miner_address}")
 async def get_miner_settings(miner_address: str, db: SessionLocal = Depends(get_db)):
