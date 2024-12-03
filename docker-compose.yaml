@@ -13,6 +13,10 @@ services:
       - DB_PORT=${DB_PORT:-5432}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -21,7 +25,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
     depends_on:
       - redis
-
+      
   redis:
     image: redis:6
     ports:
@@ -29,6 +33,5 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-
 volumes:
   redis_data:
