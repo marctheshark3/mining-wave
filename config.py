@@ -21,6 +21,7 @@ class Settings(BaseSettings):
         env_file_encoding = 'utf-8'
 
     def get_database_url(self) -> str:
-        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        # return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        pass
 
 settings = Settings()
