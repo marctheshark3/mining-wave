@@ -1,17 +1,18 @@
-version: '3'
+version: '3.8'
+
 services:
   api:
     build: .
-    container_name: MiningWave-API
+    container_name: mining-wave-api
     ports:
       - "8000:8000"
     environment:
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - DB_HOST=${DB_HOST:-host.docker.internal}
-      - DB_PORT=${DB_PORT:-5432}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - REDIS_URL=${REDIS_URL}
       - PYTHONUNBUFFERED=1
       - MAX_CONNECTIONS=10
     deploy:
@@ -34,17 +35,12 @@ services:
       retries: 3
       
   redis:
-    image: redis:6
+    image: redis:6.2-alpine
+    container_name: mining-wave-redis
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
 
 volumes:
   redis_data:

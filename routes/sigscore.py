@@ -4,7 +4,12 @@ from database import create_db_pool
 from utils.logging import logger
 from datetime import datetime, timedelta
 from fastapi_cache.decorator import cache
+<<<<<<< HEAD
 from typing import List, Dict, Any, Optional
+=======
+
+from typing import List, Dict, Any
+>>>>>>> 205a52662c488f38dfea89bb8e3bc92aa3caf882
 from pydantic import BaseModel
 import json
 from utils.calculate import calculate_mining_effort, calculate_time_to_find_block, calculate_pplns_participation

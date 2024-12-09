@@ -7,6 +7,13 @@ from dotenv import load_dotenv
 from sqlalchemy.sql import text
 import logging
 from datetime import datetime, timedelta
+from pydantic import BaseModel
+from typing import Optional
+
+
+class MinerSettings(BaseModel):
+    minimum_payout_threshold: float
+    swapping: bool
 
 from pydantic import BaseModel
 from typing import List, Optional
@@ -167,7 +174,11 @@ async def get_all_miners(
             FROM minerstats
             WHERE created = (SELECT max_created FROM latest_timestamp)
             GROUP BY miner
+<<<<<<< HEAD:main.py
             HAVING SUM(hashrate) > 0
+=======
+            HAVING SUM(hashrate) > 0  -- Filter out miners with 0 hashrate
+>>>>>>> main:secondary_server/api/main.py
         ),
         latest_blocks AS (
             SELECT DISTINCT ON (miner) miner, created as last_block_found
@@ -182,7 +193,7 @@ async def get_all_miners(
             lb.last_block_found
         FROM latest_stats ls
         LEFT JOIN latest_blocks lb ON ls.miner = lb.miner
-        ORDER BY ls.total_hashrate DESC NULLS LAST
+        ORDER BY ls.total_hashrate DESC
         LIMIT :limit OFFSET :offset
     """)
     result = execute_query(db, query, {"limit": limit, "offset": offset})
@@ -195,7 +206,11 @@ async def get_all_miners(
         "last_block_found": row.last_block_found.isoformat() if row.last_block_found else None
     } for row in result]
     
+<<<<<<< HEAD:main.py
     logger.info(f"Retrieved {len(miners)} active miners for the latest timestamp")
+=======
+    logger.info(f"Retrieved {len(miners)} miners with non-zero hashrate, including total hashrate, shares per second, and last block found timestamp")
+>>>>>>> main:secondary_server/api/main.py
     return miners
 
 @app.get("/sigscore/miners/top")
@@ -419,6 +434,38 @@ async def get_miner_setting(miner_address: str, db: SessionLocal = Depends(get_d
         "swapping": settings.swapping,
         "created_at": settings.created_at.isoformat()
     }
+
+@app.get("/miner_settings/{miner_address}")
+async def get_miner_settings(miner_address: str, db: SessionLocal = Depends(get_db)):
+    query = text("SELECT * FROM miner_payouts WHERE miner_address = :miner_address")
+    result = execute_query(db, query, {"miner_address": miner_address})
+    settings = result.fetchone()
+    if settings is None:
+        raise HTTPException(status_code=404, detail="Miner settings not found")
+    return {
+        "miner_address": settings.miner_address,
+        "minimum_payout_threshold": float(settings.minimum_payout_threshold),
+        "swapping": settings.swapping,
+        "created_at": settings.created_at.isoformat()
+    }
+
+@app.post("/miner_settings/{miner_address}")
+async def update_miner_settings(miner_address: str, settings: MinerSettings, db: SessionLocal = Depends(get_db)):
+    query = text("""
+        INSERT INTO miner_payouts (miner_address, minimum_payout_threshold, swapping)
+        VALUES (:miner_address, :minimum_payout_threshold, :swapping)
+        ON CONFLICT (miner_address) DO UPDATE
+        SET minimum_payout_threshold = :minimum_payout_threshold,
+            swapping = :swapping,
+            created_at = CURRENT_TIMESTAMP
+    """)
+    execute_query(db, query, {
+        "miner_address": miner_address,
+        "minimum_payout_threshold": settings.minimum_payout_threshold,
+        "swapping": settings.swapping
+    })
+    db.commit()
+    return {"status": "success", "message": "Miner settings updated"}
 
 if __name__ == "__main__":
     import uvicorn
