@@ -3,7 +3,8 @@ uvicorn
 sqlalchemy
 psycopg2-binary
 python-dotenv
-aioredis
+aioredis>=2.0.0
+uvloop
 pytz
 
 Werkzeug==2.0.1
