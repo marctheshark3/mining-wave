@@ -4,12 +4,8 @@ from database import create_db_pool
 from utils.logging import logger
 from datetime import datetime, timedelta
 from fastapi_cache.decorator import cache
-<<<<<<< HEAD
 from typing import List, Dict, Any, Optional
-=======
 
-from typing import List, Dict, Any
->>>>>>> 205a52662c488f38dfea89bb8e3bc92aa3caf882
 from pydantic import BaseModel
 import json
 from utils.calculate import calculate_mining_effort, calculate_time_to_find_block, calculate_pplns_participation
@@ -228,6 +224,17 @@ async def get_top_miners(db=Depends(create_db_pool)):
     logger.info(f"Retrieved top 20 miners")
     return top_miners
 
+def safe_float(value, default=0.0):
+    """Convert a value to float safely, handling extreme values"""
+    try:
+        num = float(value)
+        # Check if the number is too large/small for JSON
+        if abs(num) > 1e308 or (num != 0 and abs(num) < 1e-308):
+            return default
+        return num
+    except (TypeError, ValueError):
+        return default
+
 @router.get("/miners/{address}")
 @cache(expire=30)
 async def get_miner_details(address: str, db=Depends(create_db_pool)):
@@ -244,6 +251,13 @@ async def get_miner_details(address: str, db=Depends(create_db_pool)):
                 FROM blocks 
                 WHERE miner = $1 
                 ORDER BY created DESC 
+                LIMIT 1
+            """,
+            "balance": """
+                SELECT COALESCE(amount, 0) as balance
+                FROM balances
+                WHERE address = $1
+                ORDER BY created DESC
                 LIMIT 1
             """,
             "payment": """
@@ -305,40 +319,46 @@ async def get_miner_details(address: str, db=Depends(create_db_pool)):
 
         # Calculate effort and time to find block
         current_effort = calculate_mining_effort(
-            pool_stats['networkdifficulty'],
-            pool_stats['networkhashrate'],
-            results["workers"][0]['total_hashrate'],
+            safe_float(pool_stats['networkdifficulty']),
+            safe_float(pool_stats['networkhashrate']),
+            safe_float(results["workers"][0]['total_hashrate']),
             results["last_block"][0]['created'].isoformat() if results["last_block"] else None
         )
 
         time_to_find = calculate_time_to_find_block(
-            pool_stats['networkdifficulty'],
-            pool_stats['networkhashrate'],
-            results["workers"][0]['total_hashrate']
+            safe_float(pool_stats['networkdifficulty']),
+            safe_float(pool_stats['networkhashrate']),
+            safe_float(results["workers"][0]['total_hashrate'])
         )
 
         # Format workers as direct objects instead of JSON strings
         workers = [{
             "worker": row['worker'],
-            "hashrate": float(row['hashrate']),
-            "shares": float(row['sharespersecond'])
+            "hashrate": safe_float(row['hashrate']),
+            "shares": safe_float(row['sharespersecond'])
         } for row in results["workers"]]
+
+        # Get balance with proper error handling
+        balance = 0.0
+        if results["balance"] and len(results["balance"]) > 0:
+            balance = safe_float(results["balance"][0]["balance"])
 
         return {
             "address": address,
-            "current_hashrate": float(results["workers"][0]['total_hashrate']),
-            "shares_per_second": float(results["workers"][0]['total_sharespersecond']),
-            "effort": current_effort,
-            "time_to_find": time_to_find,
+            "balance": balance,
+            "current_hashrate": safe_float(results["workers"][0]['total_hashrate']),
+            "shares_per_second": safe_float(results["workers"][0]['total_sharespersecond']),
+            "effort": safe_float(current_effort),
+            "time_to_find": safe_float(time_to_find),
             "last_block_found": {
                 "timestamp": results["last_block"][0]['created'].isoformat() if results["last_block"] else None,
                 "block_height": results["last_block"][0]['blockheight'] if results["last_block"] else None
             },
             "payments": {
-                "paid_today": float(results["paid_today"][0]['paid_today']),
-                "total_paid": float(results["total_paid"][0]['total_paid']),
+                "paid_today": safe_float(results["paid_today"][0]['paid_today']),
+                "total_paid": safe_float(results["total_paid"][0]['total_paid']),
                 "last_payment": {
-                    "amount": float(results["payment"][0]['amount']) if results["payment"] else 0,
+                    "amount": safe_float(results["payment"][0]['amount']) if results["payment"] else 0,
                     "date": results["payment"][0]['last_payment_date'].isoformat() if results["payment"] else None,
                     "tx_id": results["payment"][0]['transactionconfirmationdata'] if results["payment"] else None
                 }
@@ -349,7 +369,7 @@ async def get_miner_details(address: str, db=Depends(create_db_pool)):
     except Exception as e:
         logger.error(f"Error retrieving miner details: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
+        
 @router.get("/miners/{address}/workers")
 @cache(expire=60)
 async def get_miner_worker_history(
