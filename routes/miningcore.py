@@ -19,7 +19,7 @@ class MiningCoreException(HTTPException):
         logger.error(f"MiningCore Error: {detail}")
         
 @router.get("/poolstats")
-@cache(expire=60)  # Cache for 1 minute
+@cache(expire=60)
 async def get_pool_stats(db=Depends(create_db_pool)):
     try:
         async with db.acquire() as conn:
@@ -43,13 +43,13 @@ async def get_pool_stats(db=Depends(create_db_pool)):
             """
             result = await conn.fetch(query)
             if not result:
-                raise MiningCoreException("No pool stats available")
+                return {"error": "No pool stats available"}
             
-            stats = dict(result[0])
-            return stats
+            return dict(result[0])
             
     except Exception as e:
-        raise MiningCoreException(f"Error retrieving pool stats: {str(e)}")
+        logger.error(f"Error retrieving pool stats: {str(e)}")
+        return {"error": str(e)}
 
 @router.get("/blocks/{address}")
 @cache(expire=30)
@@ -66,38 +66,57 @@ async def get_miner_blocks(
                     FROM poolstats
                     ORDER BY created DESC
                     LIMIT 1
+                ),
+                miner_stats AS (
+                    SELECT hashrate
+                    FROM minerstats
+                    WHERE miner = $1
+                    ORDER BY created DESC
+                    LIMIT 1
                 )
                 SELECT 
-                    b.*,
-                    CASE 
-                        WHEN b.effort IS NULL THEN
-                            calculate_mining_effort(
-                                p.networkdifficulty,
-                                p.networkhashrate,
-                                b.minerhashratestring::numeric,
-                                b.created
-                            )
-                        ELSE b.effort
-                    END as calculated_effort
+                    b.created,
+                    b.blockheight,
+                    b.effort as stored_effort,
+                    b.reward,
+                    b.confirmationprogress,
+                    p.networkdifficulty,
+                    p.networkhashrate,
+                    ms.hashrate as current_hashrate
                 FROM blocks b
                 CROSS JOIN pool_stats p
+                LEFT JOIN miner_stats ms ON true
                 WHERE b.miner = $1
                 ORDER BY b.created DESC
                 LIMIT $2
             """
             rows = await conn.fetch(query, address, limit)
             
-            blocks = [{
-                "created": row['created'].isoformat(),
-                "blockheight": row['blockheight'],
-                "effort": float(row['calculated_effort']),
-                "reward": float(row['reward']) if row['reward'] else 0,
-                "confirmationprogress": float(row['confirmationprogress']) if row['confirmationprogress'] else 0
-            } for row in rows]
+            blocks = []
+            for row in rows:
+                # If block has stored effort, use it, otherwise calculate
+                if row['stored_effort'] is not None:
+                    effort = float(row['stored_effort'])
+                else:
+                    effort = calculate_mining_effort(
+                        row['networkdifficulty'],
+                        row['networkhashrate'],
+                        row['current_hashrate'] if row['current_hashrate'] else 0,
+                        row['created'].isoformat()
+                    )
+
+                blocks.append({
+                    "created": row['created'].isoformat(),
+                    "blockheight": row['blockheight'],
+                    "effort": effort,
+                    "reward": float(row['reward']) if row['reward'] else 0,
+                    "confirmationprogress": float(row['confirmationprogress']) if row['confirmationprogress'] else 0
+                })
             
             return blocks
             
     except Exception as e:
+        logger.error(f"Error retrieving blocks for miner {address}: {str(e)}")
         raise MiningCoreException(f"Error retrieving blocks for miner {address}: {str(e)}")
 
 @router.get("/payments/{address}")
@@ -113,17 +132,9 @@ async def get_miner_payments(
                 SELECT 
                     created,
                     amount,
-                    transactionconfirmationdata,
-                    coalesce(json_agg(
-                        json_build_object(
-                            'asset', sp.asset,
-                            'amount', sp.amount
-                        )
-                    ) FILTER (WHERE sp.payment_id IS NOT NULL), '[]') as swap_details
-                FROM payments p
-                LEFT JOIN swap_payments sp ON p.id = sp.payment_id
-                WHERE p.address = $1
-                GROUP BY p.id
+                    transactionconfirmationdata
+                FROM payments
+                WHERE address = $1
                 ORDER BY created DESC
                 LIMIT $2
             """
@@ -132,15 +143,15 @@ async def get_miner_payments(
             payments = [{
                 "created": row['created'].isoformat(),
                 "amount": float(row['amount']),
-                "tx_id": row['transactionconfirmationdata'],
-                "swap_details": row['swap_details']
+                "tx_id": row['transactionconfirmationdata']
             } for row in rows]
             
             return payments
             
     except Exception as e:
+        logger.error(f"Error retrieving payments for miner {address}: {str(e)}")
         raise MiningCoreException(f"Error retrieving payments for miner {address}: {str(e)}")
-
+        
 @router.get("/shares")
 @cache(expire=30)
 async def get_current_shares(db=Depends(create_db_pool)):
@@ -153,26 +164,25 @@ async def get_current_shares(db=Depends(create_db_pool)):
                     WHERE confirmationprogress >= 1
                 )
                 SELECT 
-                    s.miner,
-                    SUM(s.sharespersecond) as shares,
-                    MAX(s.created) as last_share
-                FROM shares s
+                    m.miner,
+                    COALESCE(SUM(m.sharespersecond), 0) as shares,
+                    MAX(m.created) as last_share
+                FROM minerstats m
                 CROSS JOIN current_round cr
-                WHERE s.created > cr.last_block
-                GROUP BY s.miner
+                WHERE m.created > cr.last_block
+                GROUP BY m.miner
             """
             rows = await conn.fetch(query)
             
-            shares = [{
+            return [{
                 "miner": row['miner'],
                 "shares": float(row['shares']),
-                "last_share": row['last_share'].isoformat()
+                "last_share": row['last_share'].isoformat() if row['last_share'] else None
             } for row in rows]
             
-            return shares
-            
     except Exception as e:
-        raise MiningCoreException(f"Error retrieving current shares: {str(e)}")
+        logger.error(f"Error retrieving current shares: {str(e)}")
+        return []
 
 
 @router.get("/{table_name}")

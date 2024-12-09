@@ -13,18 +13,25 @@ services:
       - DB_PORT=${DB_PORT:-5432}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - PYTHONUNBUFFERED=1
+      - MAX_CONNECTIONS=10
     deploy:
       resources:
         limits:
           memory: 1G
-    restart: always
+    restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./:/app
-    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload --log-level debug --timeout-keep-alive 75 --workers 2
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
       
   redis:
     image: redis:6
@@ -33,5 +40,11 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
 volumes:
   redis_data:
