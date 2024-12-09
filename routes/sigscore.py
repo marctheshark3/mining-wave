@@ -4,8 +4,10 @@ from database import create_db_pool
 from utils.logging import logger
 from datetime import datetime, timedelta
 from fastapi_cache.decorator import cache
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
+import json
+from utils.calculate import calculate_mining_effort, calculate_time_to_find_block, calculate_pplns_participation
 
 router = APIRouter(prefix="/sigscore")
 
@@ -14,6 +16,101 @@ class SigScoreException(HTTPException):
         super().__init__(status_code=500, detail=detail)
         logger.error(f"SigScore Error: {detail}")
         
+
+class LoyalMiner(BaseModel):
+    address: str
+    days_active: int
+    weekly_avg_hashrate: float
+    current_balance: float
+    last_payment: Optional[str]
+
+@router.get("/miners/bonus", response_model=List[LoyalMiner])
+async def get_weekly_loyal_miners(
+    db=Depends(create_db_pool),
+    limit: int = Query(default=100, ge=1, le=1000)
+) -> List[Dict[str, Any]]:
+    """
+    Get miners who have been active for at least 4 out of the last 7 days,
+    with at least 12 hours of activity per active day.
+    """
+    
+    end_time = datetime.utcnow()
+    start_time = end_time - timedelta(days=7)
+    
+    query = """
+    WITH hourly_activity AS (
+        -- Get hourly averages for each miner
+        SELECT 
+            miner,
+            date_trunc('hour', created) AS hour,
+            DATE(created) AS day,
+            AVG(hashrate) AS avg_hashrate
+        FROM minerstats
+        WHERE created >= $1 AND created <= $2
+        GROUP BY miner, date_trunc('hour', created), DATE(created)
+        HAVING AVG(hashrate) > 0
+    ),
+    daily_activity AS (
+        -- Count active hours per day for each miner
+        SELECT 
+            miner,
+            day,
+            COUNT(DISTINCT hour) AS active_hours,
+            AVG(avg_hashrate) AS daily_avg_hashrate
+        FROM hourly_activity
+        GROUP BY miner, day
+    ),
+    qualified_miners AS (
+        -- Find miners active for 12+ hours on at least 4 days
+        SELECT 
+            miner,
+            COUNT(DISTINCT day) AS days_active,
+            AVG(daily_avg_hashrate) AS weekly_avg_hashrate
+        FROM daily_activity
+        WHERE active_hours >= 12
+        GROUP BY miner
+        HAVING COUNT(DISTINCT day) >= 4
+    )
+    SELECT 
+        qm.miner,
+        qm.days_active,
+        qm.weekly_avg_hashrate,
+        COALESCE(b.amount, 0) as current_balance,
+        MAX(p.created) as last_payment_date
+    FROM qualified_miners qm
+    LEFT JOIN balances b ON qm.miner = b.address
+    LEFT JOIN payments p ON qm.miner = p.address
+    GROUP BY qm.miner, qm.days_active, qm.weekly_avg_hashrate, b.amount
+    ORDER BY qm.weekly_avg_hashrate DESC
+    LIMIT $3
+    """
+    
+    try:
+        async with db.acquire() as conn:
+            rows = await conn.fetch(query, start_time, end_time, limit)
+            
+            if not rows:
+                # Return empty list instead of raising 404
+                logger.info("No loyal miners found for the given criteria")
+                return []
+        
+        loyal_miners = [
+            LoyalMiner(
+                address=row['miner'],
+                days_active=row['days_active'],
+                weekly_avg_hashrate=float(row['weekly_avg_hashrate']),
+                current_balance=float(row['current_balance']),
+                last_payment=row['last_payment_date'].isoformat() if row['last_payment_date'] else None
+            )
+            for row in rows
+        ]
+        
+        logger.info(f"Retrieved {len(loyal_miners)} miners active for 4+ days in the past week")
+        return loyal_miners
+        
+    except Exception as e:
+        logger.error(f"Error retrieving weekly loyal miners: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get("/history")
 @cache(expire=300)  # Cache for 5 minutes
@@ -131,110 +228,122 @@ async def get_top_miners(db=Depends(create_db_pool)):
 async def get_miner_details(address: str, db=Depends(create_db_pool)):
     try:
         queries = {
-            "current_stats": """
-                WITH latest_stats AS (
-                    SELECT 
-                        miner,
-                        SUM(hashrate) as total_hashrate,
-                        SUM(sharespersecond) as total_shares,
-                        json_agg(
-                            json_build_object(
-                                'worker', worker,
-                                'hashrate', hashrate,
-                                'shares', sharespersecond
-                            )
-                        ) as workers,
-                        MAX(created) as last_stat
-                    FROM minerstats
-                    WHERE miner = $1
-                    AND created >= NOW() - INTERVAL '1 hour'
-                    GROUP BY miner
-                )
-                SELECT 
-                    ls.*,
-                    p.networkdifficulty,
-                    p.networkhashrate
-                FROM latest_stats ls
-                CROSS JOIN LATERAL (
-                    SELECT networkdifficulty, networkhashrate
-                    FROM poolstats
-                    ORDER BY created DESC
-                    LIMIT 1
-                ) p
-            """,
-            "blocks": """
-                SELECT created, blockheight
-                FROM blocks
-                WHERE miner = $1
-                ORDER BY created DESC
+            "pool_stats": """
+                SELECT networkdifficulty, networkhashrate 
+                FROM poolstats 
+                ORDER BY created DESC 
                 LIMIT 1
             """,
-            "payments": """
-                SELECT 
-                    SUM(amount) FILTER (WHERE created >= CURRENT_DATE) as paid_today,
-                    SUM(amount) as total_paid,
-                    json_build_object(
-                        'amount', MAX(amount),
-                        'date', MAX(created),
-                        'tx_id', MAX(transactionconfirmationdata)
-                    ) as last_payment
-                FROM payments
+            "last_block": """
+                SELECT created, blockheight 
+                FROM blocks 
+                WHERE miner = $1 
+                ORDER BY created DESC 
+                LIMIT 1
+            """,
+            "payment": """
+                SELECT amount, created as last_payment_date, transactionconfirmationdata 
+                FROM payments 
+                WHERE address = $1 
+                ORDER BY created DESC 
+                LIMIT 1
+            """,
+            "total_paid": """
+                SELECT COALESCE(SUM(amount), 0) as total_paid 
+                FROM payments 
                 WHERE address = $1
+            """,
+            "paid_today": """
+                SELECT COALESCE(SUM(amount), 0) as paid_today 
+                FROM payments 
+                WHERE address = $1 
+                AND DATE(created) = $2
+            """,
+            "workers": """
+                WITH latest_worker_stats AS (
+                    SELECT 
+                        worker,
+                        hashrate,
+                        sharespersecond,
+                        ROW_NUMBER() OVER (PARTITION BY worker ORDER BY created DESC) as rn
+                    FROM minerstats
+                    WHERE miner = $1
+                )
+                SELECT 
+                    worker, 
+                    hashrate, 
+                    sharespersecond,
+                    SUM(hashrate) OVER () as total_hashrate,
+                    SUM(sharespersecond) OVER () as total_sharespersecond
+                FROM latest_worker_stats
+                WHERE rn = 1
+                ORDER BY hashrate DESC
             """
         }
 
         results = {}
         async with db.acquire() as conn:
+            # Get pool stats first
+            pool_stats = await conn.fetchrow(queries["pool_stats"])
+            
+            # Get other data
             for key, query in queries.items():
-                rows = await conn.fetch(query, address)
-                results[key] = rows[0] if rows else None
+                if key == "pool_stats":
+                    continue
+                if key == "paid_today":
+                    results[key] = await conn.fetch(query, address, datetime.utcnow().date())
+                else:
+                    results[key] = await conn.fetch(query, address)
 
-        if not results["current_stats"]:
-            raise SigScoreException(f"No data found for miner {address}")
+        if not results["workers"]:
+            raise HTTPException(status_code=404, detail=f"Miner with address {address} not found")
 
         # Calculate effort and time to find block
-        stats = results["current_stats"]
-        effort = calculate_mining_effort(
-            stats['networkdifficulty'],
-            stats['networkhashrate'],
-            stats['total_hashrate'],
-            results["blocks"]["created"] if results["blocks"] else datetime.min
-        )
-        
-        ttf = calculate_time_to_find_block(
-            stats['networkdifficulty'],
-            stats['networkhashrate'],
-            stats['total_hashrate']
+        current_effort = calculate_mining_effort(
+            pool_stats['networkdifficulty'],
+            pool_stats['networkhashrate'],
+            results["workers"][0]['total_hashrate'],
+            results["last_block"][0]['created'].isoformat() if results["last_block"] else None
         )
 
-        payments = results["payments"]
-        
+        time_to_find = calculate_time_to_find_block(
+            pool_stats['networkdifficulty'],
+            pool_stats['networkhashrate'],
+            results["workers"][0]['total_hashrate']
+        )
+
+        # Format workers as direct objects instead of JSON strings
+        workers = [{
+            "worker": row['worker'],
+            "hashrate": float(row['hashrate']),
+            "shares": float(row['sharespersecond'])
+        } for row in results["workers"]]
+
         return {
             "address": address,
-            "current_hashrate": float(stats['total_hashrate']),
-            "shares_per_second": float(stats['total_shares']),
-            "effort": effort,
-            "time_to_find": ttf,
+            "current_hashrate": float(results["workers"][0]['total_hashrate']),
+            "shares_per_second": float(results["workers"][0]['total_sharespersecond']),
+            "effort": current_effort,
+            "time_to_find": time_to_find,
             "last_block_found": {
-                "timestamp": results["blocks"]["created"].isoformat() if results["blocks"] else None,
-                "block_height": results["blocks"]["blockheight"] if results["blocks"] else None
+                "timestamp": results["last_block"][0]['created'].isoformat() if results["last_block"] else None,
+                "block_height": results["last_block"][0]['blockheight'] if results["last_block"] else None
             },
             "payments": {
-                "paid_today": float(payments['paid_today']) if payments['paid_today'] else 0,
-                "total_paid": float(payments['total_paid']) if payments['total_paid'] else 0,
+                "paid_today": float(results["paid_today"][0]['paid_today']),
+                "total_paid": float(results["total_paid"][0]['total_paid']),
                 "last_payment": {
-                    "amount": float(payments['last_payment']['amount']) if payments['last_payment']['amount'] else 0,
-                    "date": payments['last_payment']['date'].isoformat() if payments['last_payment']['date'] else None,
-                    "tx_id": payments['last_payment']['tx_id']
+                    "amount": float(results["payment"][0]['amount']) if results["payment"] else 0,
+                    "date": results["payment"][0]['last_payment_date'].isoformat() if results["payment"] else None,
+                    "tx_id": results["payment"][0]['transactionconfirmationdata'] if results["payment"] else None
                 }
             },
-            "workers": stats['workers']
+            "workers": workers
         }
-            
-    except SigScoreException:
-        raise
+
     except Exception as e:
-        raise SigScoreException(f"Error retrieving miner details: {str(e)}")
+        logger.error(f"Error retrieving miner details: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/miners/{address}/workers")
 @cache(expire=60)
