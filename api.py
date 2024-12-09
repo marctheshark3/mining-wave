@@ -1,10 +1,7 @@
 # api.py
-<<<<<<< HEAD
-from fastapi import FastAPI, Depends, HTTPException
-=======
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
->>>>>>> 205a52662c488f38dfea89bb8e3bc92aa3caf882
+
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_limiter import FastAPILimiter
@@ -14,7 +11,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 
 from config import settings
-from database import create_db_pool
+from database import create_db_pool, DatabasePool
 from routes import miningcore, sigscore, general
 from middleware import setup_middleware
 from utils.logging import setup_logger
@@ -56,15 +53,9 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(general.router)
 app.include_router(miningcore.router)
 app.include_router(sigscore.router)
-<<<<<<< HEAD
-setup_middleware(app)
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-=======
 
 # Log settings at startup
-logger.info(f"Loaded settings: {settings.dict()}")
+# logger.info(f"Loaded settings: {settings.dict()}")
 
 # Setup middleware
 setup_middleware(app)
@@ -109,4 +100,3 @@ async def shutdown_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="0.0.0.0", port=8000, workers=4)
->>>>>>> 205a52662c488f38dfea89bb8e3bc92aa3caf882
