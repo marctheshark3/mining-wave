@@ -8,5 +8,8 @@ async def create_db_pool():
         port=settings.DB_PORT,
         user=settings.DB_USER,
         password=settings.DB_PASSWORD,
-        database=settings.DB_NAME
+        database=settings.DB_NAME,
+        min_size=2,        # Add this
+        max_size=10,       # Add this
+        command_timeout=60  # Add this
     )
