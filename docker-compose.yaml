@@ -14,11 +14,26 @@ services:
       - DB_PORT=${DB_PORT}
       - REDIS_URL=${REDIS_URL}
       - PYTHONUNBUFFERED=1
+      - MAX_CONNECTIONS=10
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./:/app
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload --log-level debug --timeout-keep-alive 75 --workers 2
     depends_on:
-      - redis
-    networks:
-      - mining-wave-network
-
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
   redis:
     image: redis:6.2-alpine
     container_name: mining-wave-redis
@@ -26,13 +41,6 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - mining-wave-network
-
-networks:
-  mining-wave-network:
-    driver: bridge
 
 volumes:
   redis_data:

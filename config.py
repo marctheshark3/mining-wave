@@ -7,12 +7,14 @@ import os
 load_dotenv()
 
 class Settings(BaseSettings):
-    DB_HOST: str = os.environ.get("DB_HOST", "")
-    DB_PORT: str = os.environ.get("DB_PORT", "5432")
-    DB_USER: str = os.environ.get("DB_USER")  # Changed from POSTGRES_USER
-    DB_PASSWORD: str = os.environ.get("DB_PASSWORD")  # Changed from POSTGRES_PASSWORD
-    DB_NAME: str = os.environ.get("DB_NAME")  # Changed from POSTGRES_DB
-    REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost")
+
+    DB_HOST: str = os.getenv("DB_HOST", "")
+    DB_PORT: str = os.getenv("DB_PORT", "5432")
+    DB_USER: str = os.getenv("DB_USER")
+    DB_PASSWORD: str = os.getenv("DB_PASSWORD")
+    DB_NAME: str = os.getenv("DB_NAME")
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost")
+
 
     class Config:
         env_file = ".env"
