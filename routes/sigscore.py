@@ -4,13 +4,23 @@ from database import create_db_pool
 from utils.logging import logger
 from datetime import datetime, timedelta
 from fastapi_cache.decorator import cache
+<<<<<<< HEAD
 from typing import List, Dict, Any, Optional
-from fastapi import Query
-from pydantic import BaseModel
+=======
 
+from typing import List, Dict, Any
+>>>>>>> 205a52662c488f38dfea89bb8e3bc92aa3caf882
+from pydantic import BaseModel
+import json
+from utils.calculate import calculate_mining_effort, calculate_time_to_find_block, calculate_pplns_participation
 
 router = APIRouter(prefix="/sigscore")
 
+class SigScoreException(HTTPException):
+    def __init__(self, detail: str):
+        super().__init__(status_code=500, detail=detail)
+        logger.error(f"SigScore Error: {detail}")
+        
 
 class LoyalMiner(BaseModel):
     address: str
@@ -219,127 +229,182 @@ async def get_top_miners(db=Depends(create_db_pool)):
     return top_miners
 
 @router.get("/miners/{address}")
+@cache(expire=30)
 async def get_miner_details(address: str, db=Depends(create_db_pool)):
-    queries = {
-        "last_block": "SELECT created, blockheight FROM blocks WHERE miner = $1 ORDER BY created DESC LIMIT 1",
-        "balance": "SELECT amount FROM balances WHERE address = $1 ORDER BY updated DESC LIMIT 1",
-        "payment": "SELECT amount, created as last_payment_date, transactionconfirmationdata FROM payments WHERE address = $1 ORDER BY created DESC LIMIT 1",
-        "total_paid": "SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE address = $1",
-        "paid_today": "SELECT COALESCE(SUM(amount), 0) as paid_today FROM payments WHERE address = $1 AND DATE(created) = $2",
-        "workers": """
-            WITH latest_worker_stats AS (
+    try:
+        queries = {
+            "pool_stats": """
+                SELECT networkdifficulty, networkhashrate 
+                FROM poolstats 
+                ORDER BY created DESC 
+                LIMIT 1
+            """,
+            "last_block": """
+                SELECT created, blockheight 
+                FROM blocks 
+                WHERE miner = $1 
+                ORDER BY created DESC 
+                LIMIT 1
+            """,
+            "payment": """
+                SELECT amount, created as last_payment_date, transactionconfirmationdata 
+                FROM payments 
+                WHERE address = $1 
+                ORDER BY created DESC 
+                LIMIT 1
+            """,
+            "total_paid": """
+                SELECT COALESCE(SUM(amount), 0) as total_paid 
+                FROM payments 
+                WHERE address = $1
+            """,
+            "paid_today": """
+                SELECT COALESCE(SUM(amount), 0) as paid_today 
+                FROM payments 
+                WHERE address = $1 
+                AND DATE(created) = $2
+            """,
+            "workers": """
+                WITH latest_worker_stats AS (
+                    SELECT 
+                        worker,
+                        hashrate,
+                        sharespersecond,
+                        ROW_NUMBER() OVER (PARTITION BY worker ORDER BY created DESC) as rn
+                    FROM minerstats
+                    WHERE miner = $1
+                )
                 SELECT 
-                    worker,
-                    hashrate,
+                    worker, 
+                    hashrate, 
                     sharespersecond,
-                    ROW_NUMBER() OVER (PARTITION BY worker ORDER BY created DESC) as rn
-                FROM minerstats
-                WHERE miner = $1
-            )
-            SELECT 
-                worker, 
-                hashrate, 
-                sharespersecond,
-                SUM(hashrate) OVER () as total_hashrate,
-                SUM(sharespersecond) OVER () as total_sharespersecond
-            FROM latest_worker_stats
-            WHERE rn = 1
-            ORDER BY hashrate DESC
-        """
-    }
+                    SUM(hashrate) OVER () as total_hashrate,
+                    SUM(sharespersecond) OVER () as total_sharespersecond
+                FROM latest_worker_stats
+                WHERE rn = 1
+                ORDER BY hashrate DESC
+            """
+        }
 
-    results = {}
-    async with db.acquire() as conn:
-        for key, query in queries.items():
-            if key == "paid_today":
-                rows = await conn.fetch(query, address, datetime.utcnow().date())
-            else:
-                rows = await conn.fetch(query, address)
-            results[key] = rows
+        results = {}
+        async with db.acquire() as conn:
+            # Get pool stats first
+            pool_stats = await conn.fetchrow(queries["pool_stats"])
+            
+            # Get other data
+            for key, query in queries.items():
+                if key == "pool_stats":
+                    continue
+                if key == "paid_today":
+                    results[key] = await conn.fetch(query, address, datetime.utcnow().date())
+                else:
+                    results[key] = await conn.fetch(query, address)
 
-    if not results["workers"]:
-        raise HTTPException(status_code=404, detail=f"Miner with address {address} not found")
+        if not results["workers"]:
+            raise HTTPException(status_code=404, detail=f"Miner with address {address} not found")
 
-    tx_link = None
-    if results["payment"] and results["payment"][0]['transactionconfirmationdata']:
-        tx_link = f"https://ergexplorer.com/transactions#{results['payment'][0]['transactionconfirmationdata']}"
+        # Calculate effort and time to find block
+        current_effort = calculate_mining_effort(
+            pool_stats['networkdifficulty'],
+            pool_stats['networkhashrate'],
+            results["workers"][0]['total_hashrate'],
+            results["last_block"][0]['created'].isoformat() if results["last_block"] else None
+        )
 
-    miner_stats = {
-        "address": address,
-        "current_hashrate": float(results["workers"][0]['total_hashrate']),
-        "shares_per_second": float(results["workers"][0]['total_sharespersecond']),
-        "last_block_found": {
-            "timestamp": results["last_block"][0]['created'].isoformat() if results["last_block"] else None,
-            "block_height": results["last_block"][0]['blockheight'] if results["last_block"] else None
-        },
-        "balance": results["balance"][0]['amount'] if results["balance"] else 0,
-        "last_payment": {
-            "amount": results["payment"][0]['amount'] if results["payment"] else 0,
-            "date": results["payment"][0]['last_payment_date'].isoformat() if results["payment"] else None,
-            "tx_link": tx_link
-        },
-        "total_paid": float(results["total_paid"][0]['total_paid']),
-        "paid_today": float(results["paid_today"][0]['paid_today']),
-        "workers": [{"worker": row['worker'], "hashrate": float(row['hashrate'])} for row in results["workers"]]
-    }
-    
-    logger.info(f"Retrieved detailed miner information for address: {address}")
-    return miner_stats
+        time_to_find = calculate_time_to_find_block(
+            pool_stats['networkdifficulty'],
+            pool_stats['networkhashrate'],
+            results["workers"][0]['total_hashrate']
+        )
+
+        # Format workers as direct objects instead of JSON strings
+        workers = [{
+            "worker": row['worker'],
+            "hashrate": float(row['hashrate']),
+            "shares": float(row['sharespersecond'])
+        } for row in results["workers"]]
+
+        return {
+            "address": address,
+            "current_hashrate": float(results["workers"][0]['total_hashrate']),
+            "shares_per_second": float(results["workers"][0]['total_sharespersecond']),
+            "effort": current_effort,
+            "time_to_find": time_to_find,
+            "last_block_found": {
+                "timestamp": results["last_block"][0]['created'].isoformat() if results["last_block"] else None,
+                "block_height": results["last_block"][0]['blockheight'] if results["last_block"] else None
+            },
+            "payments": {
+                "paid_today": float(results["paid_today"][0]['paid_today']),
+                "total_paid": float(results["total_paid"][0]['total_paid']),
+                "last_payment": {
+                    "amount": float(results["payment"][0]['amount']) if results["payment"] else 0,
+                    "date": results["payment"][0]['last_payment_date'].isoformat() if results["payment"] else None,
+                    "tx_id": results["payment"][0]['transactionconfirmationdata'] if results["payment"] else None
+                }
+            },
+            "workers": workers
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving miner details: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/miners/{address}/workers")
-async def get_miner_worker_history(address: str, db=Depends(create_db_pool)) -> Dict[str, List[Dict[str, Any]]]:
-    end_time = datetime.utcnow()
-    start_time = end_time - timedelta(days=5)
-    
-    query = """
-        WITH hourly_data AS (
-            SELECT 
-                date_trunc('hour', created) AS hour,
-                worker,
-                AVG(hashrate) AS avg_hashrate,
-                AVG(sharespersecond) AS avg_sharespersecond
-            FROM minerstats
-            WHERE miner = $1
-                AND created >= $2 
-                AND created < $3
-            GROUP BY date_trunc('hour', created), worker
-        )
-        SELECT 
-            hour,
-            worker,
-            avg_hashrate,
-            avg_sharespersecond
-        FROM hourly_data
-        ORDER BY hour, worker
-    """
-    
+@cache(expire=60)
+async def get_miner_worker_history(
+    address: str,
+    db=Depends(create_db_pool),
+    days: int = Query(5, ge=1, le=30)
+):
     try:
+        query = """
+            WITH worker_stats AS (
+                SELECT 
+                    worker,
+                    date_trunc('hour', created) as hour,
+                    AVG(hashrate) as hashrate,
+                    AVG(sharespersecond) as shares
+                FROM minerstats
+                WHERE miner = $1
+                AND created >= NOW() - make_interval(days => $2)
+                GROUP BY worker, date_trunc('hour', created)
+            )
+            SELECT
+                worker,
+                hour as timestamp,
+                hashrate,
+                shares,
+                LAG(hashrate) OVER (PARTITION BY worker ORDER BY hour) as prev_hashrate
+            FROM worker_stats
+            ORDER BY hour, worker
+        """
+        
         async with db.acquire() as conn:
-            rows = await conn.fetch(query, address, start_time, end_time)
+            rows = await conn.fetch(query, address, days)
         
-        miner_history: Dict[str, List[Dict[str, Any]]] = {}
-        
+        worker_history = {}
         for row in rows:
             worker = row['worker']
-            if worker not in miner_history:
-                miner_history[worker] = []
+            if worker not in worker_history:
+                worker_history[worker] = []
             
-            miner_history[worker].append({
-                "timestamp": row['hour'].isoformat(),
-                "hashrate": float(row['avg_hashrate']),
-                "sharesPerSecond": float(row['avg_sharespersecond'])
+            # Calculate percentage change from previous hour
+            pct_change = None
+            if row['prev_hashrate']:
+                pct_change = ((row['hashrate'] - row['prev_hashrate']) / row['prev_hashrate']) * 100
+            
+            worker_history[worker].append({
+                "timestamp": row['timestamp'].isoformat(),
+                "hashrate": float(row['hashrate']),
+                "shares": float(row['shares']),
+                "hashrate_change": float(pct_change) if pct_change is not None else None
             })
         
-        if not miner_history:
-            logger.warning(f"No data found for miner {address} in the last 5 days.")
-            return {}
-        
-        logger.info(f"Retrieved 5-day hourly history for miner {address} with {len(miner_history)} workers")
-        return miner_history
-    
+        return worker_history
+            
     except Exception as e:
-        logger.error(f"Error occurred: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise SigScoreException(f"Error retrieving worker history: {str(e)}")
 
 class MinerSettings(BaseModel):
     miner_address: str
