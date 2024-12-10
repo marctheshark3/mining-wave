@@ -1,102 +1,158 @@
 # api.py
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
+from contextlib import asynccontextmanager
 from fastapi_cache import FastAPICache
-from fastapi_cache.backends.redis import RedisBackend
 from fastapi_limiter import FastAPILimiter
 from redis import asyncio as aioredis
+from utils.cache import setup_cache
 import asyncio
 import uvicorn
-from contextlib import asynccontextmanager
+from typing import Dict, Any
 
-from config import settings
-from database import create_db_pool, DatabasePool
+from database import DatabasePool
 from routes import miningcore, sigscore, general
 from middleware import setup_middleware
-from utils.logging import setup_logger
+from utils.logging import logger
+from config import settings
 
-logger = setup_logger()
+async def monitor_connections():
+    """Monitor database connections and cleanup when necessary"""
+    while True:
+        try:
+            pool_stats = await DatabasePool.get_pool_stats()
+            logger.info(f"Pool stats: {pool_stats}")
+            
+            pool_size = pool_stats.get("pool_size", 0)
+            max_size = pool_stats.get("pool_max_size", 20)
+            if pool_size > max_size * 0.8:
+                logger.warning(f"High connection usage detected ({pool_size}/{max_size}), initiating cleanup")
+                await DatabasePool.cleanup_connections()
+            
+            await asyncio.sleep(30)  # Check every 30 seconds
+        except Exception as e:
+            logger.error(f"Error in connection monitoring: {str(e)}")
+            await asyncio.sleep(60)  # Wait longer on error
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        # Initialize Redis
-        redis = await aioredis.from_url(
-            settings.REDIS_URL,
-            encoding="utf8",
-            decode_responses=True,
-            max_connections=10
-        )
-        
-        # Clean up and initialize database pool
-        app.state.pool = await create_db_pool()
-        
-        # Initialize cache and rate limiter
-        FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache:")
-        await FastAPILimiter.init(redis)
-        
-        yield
-        
-        # Cleanup
-        await DatabasePool.close()
-        if redis:
-            await redis.close()
+    """Lifecycle manager for the FastAPI application"""
+    retry_count = 0
+    max_retries = 3
+    
+    while retry_count < max_retries:
+        try:
+            # Initialize database pool
+            pool = await DatabasePool.get_pool()
+            app.state.pool = pool
             
-    except Exception as e:
-        logger.error(f"Startup error: {str(e)}")
-        # Make sure we cleanup even if startup fails
-        await DatabasePool.close()
-        raise
+            # Initialize Redis cache with our custom configuration
+            redis = await setup_cache(settings.REDIS_URL)
+            
+            # Initialize rate limiter
+            await FastAPILimiter.init(redis)
+            
+            # Start monitoring task
+            app.state.monitor_task = asyncio.create_task(monitor_connections())
+            logger.info("Application startup completed successfully")
+            
+            yield
+            
+            # Cleanup
+            logger.info("Starting application shutdown")
+            app.state.monitor_task.cancel()
+            await DatabasePool.close()
+            if redis:
+                await redis.close()
+            logger.info("Application shutdown completed")
+            break
+            
+        except Exception as e:
+            retry_count += 1
+            logger.error(f"Startup attempt {retry_count} failed: {str(e)}")
+            if retry_count == max_retries:
+                raise
+            await asyncio.sleep(5)  # Wait before retrying
 
-app = FastAPI(lifespan=lifespan)
-app.include_router(general.router)
-app.include_router(miningcore.router)
-app.include_router(sigscore.router)
+def create_application() -> FastAPI:
+    """Create and configure the FastAPI application"""
+    app = FastAPI(
+        title="MiningWave API",
+        description="FastAPI-based microservice for crypto mining pool metrics and management",
+        version="1.0.0",
+        lifespan=lifespan
+    )
+    
+    # Setup CORS
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Adjust for production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Include routers
+    app.include_router(general.router)
+    app.include_router(miningcore.router, prefix="/miningcore")
+    app.include_router(sigscore.router, prefix="/sigscore")
+    
+    # Additional middleware
+    setup_middleware(app)
+    
+    return app
 
-# Log settings at startup
-# logger.info(f"Loaded settings: {settings.dict()}")
+# Create the application instance
+app = create_application()
 
-# Setup middleware
-setup_middleware(app)
-
-@app.on_event("startup")
-async def startup_event():
+@app.get("/health")
+async def health_check() -> Dict[str, Any]:
+    """Health check endpoint for the API"""
     try:
-        # Initialize database pool
-        logger.info("Initializing database pool...")
-        app.state.pool = await create_db_pool()
-        logger.info("Database pool initialized successfully")
-
-        # Initialize Redis for caching
-        logger.info("Initializing Redis connection...")
-        redis = aioredis.from_url(
-            settings.REDIS_URL, 
-            encoding="utf8", 
-            decode_responses=True
+        pool_stats = await DatabasePool.get_pool_stats()
+        return {
+            "status": "healthy",
+            "database_pool": pool_stats,
+            "version": "1.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Health check failed: {str(e)}"
         )
-        FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache:")
-        logger.info(f"Redis cache initialized at {settings.REDIS_URL}")
 
-        # Initialize rate limiter
-        logger.info("Initializing rate limiter...")
-        await FastAPILimiter.init(redis)
-        logger.info("Rate limiter initialized successfully")
+@app.get("/")
+async def root():
+    """Root endpoint returning API information"""
+    return {
+        "app": "MiningWave API",
+        "version": "1.0.0",
+        "status": "operational"
+    }
 
-    except Exception as e:
-        logger.error(f"Startup error: {str(e)}")
-        raise
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    try:
-        logger.info("Shutting down database pool...")
-        await app.state.pool.close()
-        logger.info("Database pool closed successfully")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {str(e)}")
-        raise
+@app.get("/routes")
+async def list_routes():
+    """List all available routes in the API"""
+    routes = []
+    for route in app.routes:
+        if hasattr(route, "methods") and hasattr(route, "path"):
+            for method in route.methods:
+                routes.append({
+                    "path": route.path,
+                    "method": method,
+                    "name": route.name if hasattr(route, "name") else None
+                })
+    return sorted(routes, key=lambda x: x["path"])
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, workers=4)
+    uvicorn.run(
+        "api:app",
+        host="0.0.0.0",
+        port=8000,
+        workers=4,
+        loop="uvloop",
+        limit_concurrency=100,
+        timeout_keep_alive=30,
+        access_log=True
+    )
