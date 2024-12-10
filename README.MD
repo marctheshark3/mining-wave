@@ -39,6 +39,32 @@ The API will be available at `http://localhost:8000`
 - `GET /test_db_connection` - Test database connectivity
 
 ### Pool Statistics
+- `GET /miningcore/poolstats` - Get current pool statistics
+  - Network difficulty and hashrate
+  - Connected miners and total pool hashrate
+  - Current effort calculation
+  - Blocks found in last 24 hours
+  - Last block details
+  - Example Response:
+    ```json
+    {
+      "id": 69498,
+      "poolid": "ErgoSigmanauts",
+      "connectedminers": 46,
+      "poolhashrate": 57250086912,
+      "sharespersecond": 4,
+      "networkhashrate": 11563376242414.9,
+      "networkdifficulty": 1387605149089792,
+      "lastnetworkblocktime": "2024-12-10T18:41:19.953226+00:00",
+      "blockheight": 1414324,
+      "connectedpeers": 125,
+      "created": "2024-12-10T18:43:03.911842+00:00",
+      "blocks_24h": 1,
+      "effort": 42.5
+    }
+    ```
+
+### Sigscore Endpoints
 - `GET /sigscore/history` - Pool hashrate history (5-day window)
 - `GET /sigscore/miners` - Active miners list with stats
 - `GET /sigscore/miners/top` - Top 20 miners by hashrate
@@ -67,7 +93,7 @@ The API will be available at `http://localhost:8000`
 - Real-time performance monitoring
 - Worker-level statistics tracking
 - Payment and balance management
-- Redis-based caching
+- Redis-based caching with custom encoding
 - Rate limiting protection
 - Comprehensive error handling
 - Structured logging
@@ -109,6 +135,7 @@ The API includes comprehensive logging:
 - Error tracking
 - Access patterns
 - System health status
+- Effort calculation debugging
 
 ## Production Notes
 
