@@ -1,9 +1,26 @@
 # MiningWave API
-
 FastAPI-based microservice for crypto mining pool metrics and management. Features real-time monitoring, worker statistics, and rewards distribution.
 
-## Quick Start
+## API Documentation
+The API provides comprehensive, interactive documentation:
+- **Swagger UI**: `http://localhost:8000/docs`
+  - Interactive API testing interface
+  - Try out API calls directly in your browser
+  - View request/response schemas
+  - Explore available parameters
+- **ReDoc**: `http://localhost:8000/redoc`
+  - Alternative documentation format
+  - Clean, organized interface
+  - Printer-friendly documentation
 
+All API endpoints are automatically documented with:
+- Detailed request/response schemas
+- Query parameters and validation rules
+- Example requests and responses
+- Authentication requirements
+- Rate limiting information
+
+## Quick Start
 ### Prerequisites
 - Docker and Docker Compose
 - PostgreSQL database instance
@@ -24,72 +41,12 @@ REDIS_URL=redis://redis:6379
 ```bash
 # Start services
 docker-compose up -d
-
 # Stop services
 docker-compose down
 ```
-
 The API will be available at `http://localhost:8000`
 
-## API Endpoints
-
-### Core Endpoints
-- `GET /` - API health check
-- `GET /tables` - List available database tables
-- `GET /test_db_connection` - Test database connectivity
-
-### Pool Statistics
-- `GET /miningcore/poolstats` - Get current pool statistics
-  - Network difficulty and hashrate
-  - Connected miners and total pool hashrate
-  - Current effort calculation
-  - Blocks found in last 24 hours
-  - Last block details
-  - Example Response:
-    ```json
-    {
-      "id": 69498,
-      "poolid": "ErgoSigmanauts",
-      "connectedminers": 46,
-      "poolhashrate": 57250086912,
-      "sharespersecond": 4,
-      "networkhashrate": 11563376242414.9,
-      "networkdifficulty": 1387605149089792,
-      "lastnetworkblocktime": "2024-12-10T18:41:19.953226+00:00",
-      "blockheight": 1414324,
-      "connectedpeers": 125,
-      "created": "2024-12-10T18:43:03.911842+00:00",
-      "blocks_24h": 1,
-      "effort": 42.5
-    }
-    ```
-
-### Sigscore Endpoints
-- `GET /sigscore/history` - Pool hashrate history (5-day window)
-- `GET /sigscore/miners` - Active miners list with stats
-- `GET /sigscore/miners/top` - Top 20 miners by hashrate
-- `GET /sigscore/miners/bonus` - Loyalty rewards tracking
-  - Monitors miners active 4+ days/week
-  - Minimum 12 hours daily activity
-  - Tracks hashrate contributions
-
-### Miner Management
-- `GET /sigscore/miners/{address}` - Single miner detailed stats
-  - Current hashrate
-  - Balance and payments
-  - Worker performance
-- `GET /sigscore/miners/{address}/workers` - Worker-level metrics
-- `GET /sigscore/miner_setting` - Pool-wide miner settings
-- `GET /sigscore/miner_setting/{address}` - Individual miner settings
-
-### Data Access
-- `GET /miningcore/{table_name}` - Raw table data access
-- `GET /miningcore/{table_name}/{address}` - Filtered table data
-  - `limit`: Records per page (max: 1000)
-  - `offset`: Pagination offset
-
-## Features
-
+## Core Features
 - Real-time performance monitoring
 - Worker-level statistics tracking
 - Payment and balance management
@@ -98,8 +55,33 @@ The API will be available at `http://localhost:8000`
 - Comprehensive error handling
 - Structured logging
 
-## Technical Stack
+## Key Endpoints Overview
+For detailed endpoint documentation, parameters, and response schemas, please refer to the Swagger UI (`/docs`) or ReDoc (`/redoc`) interface.
 
+### Core Operations
+- Health and connectivity checks
+- Database table management
+- System status monitoring
+
+### Pool Statistics
+- Current pool metrics
+- Network statistics
+- Block information
+- Effort calculations
+
+### Sigscore System
+- Pool hashrate history
+- Miner rankings
+- Loyalty rewards tracking
+- Performance analytics
+
+### Miner Management
+- Individual miner statistics
+- Worker performance metrics
+- Payment settings
+- Balance tracking
+
+## Technical Stack
 - **FastAPI**: Modern async web framework
 - **PostgreSQL**: Primary data store
 - **Redis**: Caching and rate limiting
@@ -108,20 +90,14 @@ The API will be available at `http://localhost:8000`
 - **AsyncPG**: Async database operations
 
 ## Development
-
 ```bash
 # Install dependencies
 pip install -r requirements.txt
-
 # Run development server
 uvicorn api:app --reload
-
-# Access API documentation
-http://localhost:8000/docs
 ```
 
 ## Security
-
 - Environment variables for sensitive data
 - Rate limiting on all endpoints
 - CORS protection configured
@@ -129,7 +105,6 @@ http://localhost:8000/docs
 - Cached responses for high-traffic endpoints
 
 ## Monitoring
-
 The API includes comprehensive logging:
 - Performance metrics
 - Error tracking
@@ -138,7 +113,6 @@ The API includes comprehensive logging:
 - Effort calculation debugging
 
 ## Production Notes
-
 - Secure your `.env` file
 - Adjust rate limits for production load
 - Configure appropriate CORS settings
@@ -146,5 +120,4 @@ The API includes comprehensive logging:
 - Set up proper database backups
 
 ## License
-
 This project is proprietary and confidential. Unauthorized copying, distribution, or use is strictly prohibited.
