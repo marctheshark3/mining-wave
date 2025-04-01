@@ -1,6 +1,11 @@
 import asyncio
 import asyncpg
 import datetime
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 async def verify_bonus_change():
     end_time = datetime.datetime.utcnow()
@@ -100,12 +105,19 @@ async def verify_bonus_change():
     '''
     
     try:
+        # Get database connection parameters from environment variables
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_port = int(os.getenv('DB_PORT', '5432'))
+        db_user = os.getenv('DB_USER', 'postgres')
+        db_password = os.getenv('DB_PASSWORD', 'password')
+        db_name = os.getenv('DB_NAME', 'miningcore')
+        
         conn = await asyncpg.connect(
-            host='localhost',
-            port=5432,
-            user='postgres',
-            password='password',
-            database='miningcore'
+            host=db_host,
+            port=db_port,
+            user=db_user,
+            password=db_password,
+            database=db_name
         )
         
         print("Connected to database. Running comparison queries...")
