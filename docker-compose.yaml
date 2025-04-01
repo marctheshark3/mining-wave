@@ -5,7 +5,7 @@ services:
     build: .
     container_name: mining-wave-api
     ports:
-      - "8001:8000"
+      - "8000:8000"
     environment:
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
@@ -74,4 +74,4 @@ services:
       start_period: 5s
 
 volumes:
-  redis_data: 
+  redis_data:
