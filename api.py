@@ -9,29 +9,88 @@ from utils.cache import setup_cache
 import asyncio
 import uvicorn
 from typing import Dict, Any
+import psutil
+import time
 
 from database import DatabasePool
 from routes import miningcore, sigscore, general
 from middleware import setup_middleware
-from utils.logging import logger
+from utils.logging import logger, start_telegram_handler, stop_telegram_handler
 from config import settings
 
-async def monitor_connections():
-    """Monitor database connections and cleanup when necessary"""
+async def monitor_system_health():
+    """Monitor system resources and health metrics"""
+    unhealthy_count = 0
     while True:
         try:
-            pool_stats = await DatabasePool.get_pool_stats()
-            logger.info(f"Pool stats: {pool_stats}")
+            # System metrics
+            cpu_percent = psutil.cpu_percent(interval=1)
+            memory = psutil.virtual_memory()
+            disk = psutil.disk_usage('/')
             
+            # Database metrics
+            pool_stats = await DatabasePool.get_pool_stats()
             pool_size = pool_stats.get("pool_size", 0)
             max_size = pool_stats.get("pool_max_size", 20)
-            if pool_size > max_size * 0.8:
-                logger.warning(f"High connection usage detected ({pool_size}/{max_size}), initiating cleanup")
+            available = pool_stats.get("pool_available", 0)
+            
+            # Log system metrics
+            metrics = {
+                "cpu_percent": cpu_percent,
+                "memory_percent": memory.percent,
+                "disk_percent": disk.percent,
+                "pool_usage": f"{pool_size}/{max_size}",
+                "pool_available": available
+            }
+            
+            # Check for concerning conditions
+            is_critical = False
+            reasons = []
+            
+            if cpu_percent > 85:
+                reasons.append(f"CPU usage critical: {cpu_percent}%")
+                is_critical = True
+            
+            if memory.percent > 90:
+                reasons.append(f"Memory usage critical: {memory.percent}%")
+                is_critical = True
+            
+            if disk.percent > 95:
+                reasons.append(f"Disk usage critical: {disk.percent}%")
+                is_critical = True
+            
+            if pool_size >= max_size:
+                reasons.append(f"Connection pool at capacity: {pool_size}/{max_size}")
+                is_critical = True
+            elif pool_size > max_size * 0.9:
+                reasons.append(f"Connection pool near capacity: {pool_size}/{max_size}")
+                
+            if is_critical:
+                logger.error(f"System resources critical: {metrics}\nReasons: {', '.join(reasons)}")
+                unhealthy_count += 1
+                
+                if unhealthy_count >= settings.MAX_UNHEALTHY_COUNT:
+                    logger.critical(
+                        f"System consistently unhealthy!\nMetrics: {metrics}\n"
+                        f"Reasons: {', '.join(reasons)}"
+                    )
+                    # Reset counter to avoid spam
+                    unhealthy_count = 0
+            else:
+                # Only log metrics every 5 minutes if healthy
+                if time.time() % 300 < 1:  # Log every ~5 minutes
+                    logger.info(f"System healthy - Metrics: {metrics}")
+                unhealthy_count = 0
+            
+            # Cleanup if needed
+            if pool_size > max_size * 0.9:
+                logger.warning(f"High pool usage detected ({pool_size}/{max_size}), initiating cleanup")
                 await DatabasePool.cleanup_connections()
             
-            await asyncio.sleep(30)  # Check every 30 seconds
+            await asyncio.sleep(settings.HEALTH_CHECK_INTERVAL)
+            
         except Exception as e:
-            logger.error(f"Error in connection monitoring: {str(e)}")
+            logger.error(f"Error in health monitoring: {str(e)}")
             await asyncio.sleep(60)  # Wait longer on error
 
 @asynccontextmanager
@@ -42,6 +101,9 @@ async def lifespan(app: FastAPI):
     
     while retry_count < max_retries:
         try:
+            # Start Telegram handler if configured
+            start_telegram_handler()
+            
             # Initialize database pool
             pool = await DatabasePool.get_pool()
             app.state.pool = pool
@@ -52,18 +114,26 @@ async def lifespan(app: FastAPI):
             # Initialize rate limiter
             await FastAPILimiter.init(redis)
             
-            # Start monitoring task
-            app.state.monitor_task = asyncio.create_task(monitor_connections())
+            # Start monitoring tasks
+            app.state.monitor_tasks = [
+                asyncio.create_task(monitor_system_health())
+            ]
+            
             logger.info("Application startup completed successfully")
             
             yield
             
             # Cleanup
             logger.info("Starting application shutdown")
-            app.state.monitor_task.cancel()
+            for task in app.state.monitor_tasks:
+                task.cancel()
             await DatabasePool.close()
             if redis:
                 await redis.close()
+            
+            # Stop Telegram handler
+            stop_telegram_handler()
+            
             logger.info("Application shutdown completed")
             break
             
