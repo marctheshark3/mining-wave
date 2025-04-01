@@ -101,10 +101,10 @@ async def verify_bonus_change():
     
     try:
         conn = await asyncpg.connect(
-            host='65.108.57.232',
+            host='localhost',
             port=5432,
-            user='miningcore',
-            password='this_IS_thesigmining',
+            user='postgres',
+            password='password',
             database='miningcore'
         )
         
