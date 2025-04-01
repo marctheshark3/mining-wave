@@ -27,7 +27,7 @@ LOYAL_MINERS_QUERY = """
             COUNT(DISTINCT day) AS days_active,
             AVG(daily_avg_hashrate) AS weekly_avg_hashrate
         FROM daily_activity
-        WHERE active_hours >= 12
+        WHERE active_hours >= 8
         GROUP BY miner
         HAVING COUNT(DISTINCT day) >= 4
     )
@@ -167,7 +167,7 @@ MINER_BONUS_DIAGNOSTIC_QUERY = """
         active_hours,
         daily_avg_hashrate,
         CASE 
-            WHEN active_hours >= 12 THEN true 
+            WHEN active_hours >= 8 THEN true 
             ELSE false 
         END as meets_hours_requirement
     FROM daily_breakdown

@@ -5,18 +5,20 @@ services:
     build: .
     container_name: mining-wave-api
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
-      - REDIS_URL=${REDIS_URL}
-      - POOL_MIN_SIZE=10
-      - POOL_MAX_SIZE=50
+      - REDIS_URL=redis://redis:6380
+      - POOL_MIN_SIZE=3
+      - POOL_MAX_SIZE=12
       - MAX_CONNECTIONS=100
       - PYTHONUNBUFFERED=1
+      - NOTIFICATION_WINDOW=300
+      - MAX_SIMILAR_NOTIFICATIONS=3
     deploy:
       resources:
         limits:
@@ -53,9 +55,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mining-wave-redis
-    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    command: redis-server --port 6380 --maxmemory 2gb --maxmemory-policy allkeys-lru
     ports:
-      - "6379:6379"
+      - "6380:6380"
     volumes:
       - redis_data:/data
     deploy:
@@ -65,7 +67,7 @@ services:
         reservations:
           memory: 2G
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3

@@ -209,7 +209,7 @@ async def get_weekly_loyal_miners(
     conn: asyncpg.Connection = Depends(get_connection),
     limit: int = Query(default=100, ge=1, le=1000)
 ) -> List[Dict[str, Any]]:
-    """Get miners who have been active for at least 4 out of the last 7 days"""
+    """Get miners who have been active for at least 4 out of the last 7 days, with at least 8 hours of activity per active day"""
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=7)
     
@@ -265,7 +265,7 @@ async def check_miner_bonus_eligibility(
                 "date": row['day'].isoformat(),
                 "active_hours": row['active_hours'],
                 "avg_hashrate": float(row['daily_avg_hashrate']),
-                "meets_hours_requirement": row['meets_hours_requirement']
+                "meets_hours_requirement": row['active_hours'] >= 8
             }
             for row in daily_stats
         ]
@@ -281,12 +281,12 @@ async def check_miner_bonus_eligibility(
             "qualifying_days": qualifying_days,
             "needs_days": qualifying_days >= 4,
             "daily_breakdown": daily_breakdown,
-            "analysis": f"Miner was active for {total_days} days, with {qualifying_days} days meeting the 12-hour minimum requirement."
+            "analysis": f"Miner was active for {total_days} days, with {qualifying_days} days meeting the 8-hour minimum requirement."
         }
         
         if not result["eligible"]:
             if qualifying_days < 4:
-                result["reason"] = f"Only {qualifying_days} days met the minimum 12-hour requirement (needs 4)"
+                result["reason"] = f"Only {qualifying_days} days met the minimum 8-hour requirement (needs 4)"
             else:
                 result["reason"] = "Unknown reason - please check daily breakdown"
                 
