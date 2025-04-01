@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: mining-wave-api
+    ports:
+      - "8001:8000"
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - REDIS_URL=redis://redis:6380
+      - POOL_MIN_SIZE=3
+      - POOL_MAX_SIZE=12
+      - MAX_CONNECTIONS=100
+      - PYTHONUNBUFFERED=1
+      - NOTIFICATION_WINDOW=300
+      - MAX_SIMILAR_NOTIFICATIONS=3
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./:/app
+    command: >
+      uvicorn api:app 
+      --host 0.0.0.0 
+      --port 8000 
+      --workers 4
+      --loop uvloop 
+      --http httptools
+      --log-level info
+      --timeout-keep-alive 75
+      --limit-concurrency 1000
+      --backlog 2048
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
+  redis:
+    image: redis:7-alpine
+    container_name: mining-wave-redis
+    command: redis-server --port 6380 --maxmemory 2gb --maxmemory-policy allkeys-lru
+    ports:
+      - "6381:6380"
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 2.5G
+        reservations:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  redis_data: 
