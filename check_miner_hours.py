@@ -1,7 +1,12 @@
 import asyncio
 import asyncpg
 import datetime
+import os
 from tabulate import tabulate
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 async def check_miner_hours():
     # Use one of the miners we saw in the previous script
@@ -11,12 +16,19 @@ async def check_miner_hours():
     start_time = end_time - datetime.timedelta(days=7)
     
     try:
+        # Get database connection parameters from environment variables
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_port = int(os.getenv('DB_PORT', '5432'))
+        db_user = os.getenv('DB_USER', 'postgres')
+        db_password = os.getenv('DB_PASSWORD', 'password')
+        db_name = os.getenv('DB_NAME', 'miningcore')
+        
         conn = await asyncpg.connect(
-            host='65.108.57.232',
-            port=5432,
-            user='miningcore',
-            password='this_IS_thesigmining',
-            database='miningcore'
+            host=db_host,
+            port=db_port,
+            user=db_user,
+            password=db_password,
+            database=db_name
         )
         
         print(f"Checking hours for miner: {miner_address}")
