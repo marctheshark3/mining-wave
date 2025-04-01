@@ -21,7 +21,6 @@ class DatabasePool:
         if not cls._instance:
             async with cls._lock:
                 if not cls._instance:
-                    await cls.cleanup_connections()
                     cls._instance = await cls._create_pool()
         return cls._instance
 
@@ -35,20 +34,44 @@ class DatabasePool:
     async def _create_pool(cls) -> asyncpg.Pool:
         """Create a new connection pool with advanced configuration"""
         try:
-            return await asyncpg.create_pool(
+            # Calculate per-worker pool sizes
+            worker_count = 4  # Matches the number of workers in docker-compose
+            per_worker_min = max(1, settings.POOL_MIN_SIZE // worker_count)
+            per_worker_max = max(3, settings.POOL_MAX_SIZE // worker_count)
+            
+            async def init_connection(conn):
+                logger.info("New database connection initialized")
+                return conn
+            
+            pool = await asyncpg.create_pool(
                 host=settings.DB_HOST,
                 port=settings.DB_PORT,
                 user=settings.DB_USER,
                 password=settings.DB_PASSWORD,
                 database=settings.DB_NAME,
-                min_size=settings.POOL_MIN_SIZE,
-                max_size=settings.POOL_MAX_SIZE,
-                max_queries=50000,   # Maximum queries per connection
-                max_inactive_connection_lifetime=300.0,  # 5 minutes
-                timeout=30.0,        # Connection timeout
-                command_timeout=60.0, # Command execution timeout
-                setup=cls._setup_connection
+                min_size=per_worker_min,  # Adjusted for per-worker
+                max_size=per_worker_max,  # Adjusted for per-worker
+                max_queries=50000,
+                max_inactive_connection_lifetime=600.0,  # 10 minutes
+                timeout=30.0,
+                command_timeout=60.0,
+                setup=cls._setup_connection,
+                init=init_connection
             )
+            
+            # Log initial pool creation
+            logger.info(
+                "Created database pool",
+                extra={
+                    "min_size": per_worker_min,
+                    "max_size": per_worker_max,
+                    "worker_count": worker_count,
+                    "total_min": per_worker_min * worker_count,
+                    "total_max": per_worker_max * worker_count
+                }
+            )
+            
+            return pool
         except Exception as e:
             logger.error(f"Failed to create connection pool: {str(e)}")
             raise
@@ -58,6 +81,7 @@ class DatabasePool:
         """Configure each connection in the pool"""
         await conn.execute('SET statement_timeout = 30000')  # 30 seconds
         await conn.execute('SET idle_in_transaction_session_timeout = 60000')  # 1 minute
+        await conn.execute("SET application_name TO 'mining-wave-worker'")
 
     @classmethod
     @asynccontextmanager
@@ -65,9 +89,16 @@ class DatabasePool:
         """Smart connection acquisition with retry logic and monitoring"""
         current_time = time.time()
         conn_id = None
-
+        
         try:
             pool = await cls.get_pool()
+            
+            # Check pool capacity before acquiring
+            stats = await cls.get_pool_stats()
+            if stats['pool_available'] == 0 and stats['pool_size'] >= stats['pool_max_size']:
+                logger.warning("Pool at capacity, attempting cleanup before acquisition")
+                await cls.cleanup_connections()
+            
             async with pool.acquire() as connection:
                 conn_id = id(connection)
                 cls._last_connection_time[conn_id] = current_time
@@ -89,7 +120,7 @@ class DatabasePool:
 
     @classmethod
     async def cleanup_connections(cls):
-        """Aggressively cleanup stale connections"""
+        """Smart cleanup of stale connections with worker awareness"""
         try:
             conn = await asyncpg.connect(
                 host=settings.DB_HOST,
@@ -99,18 +130,59 @@ class DatabasePool:
                 database=settings.DB_NAME
             )
             
-            # Kill idle connections older than 5 minutes
-            await conn.execute("""
-                SELECT pg_terminate_backend(pid)
+            # Get detailed connection statistics
+            stats = await conn.fetch("""
+                SELECT 
+                    application_name,
+                    state,
+                    COUNT(*) as conn_count,
+                    MAX(EXTRACT(EPOCH FROM (NOW() - state_change))) as max_idle_time
                 FROM pg_stat_activity
                 WHERE datname = current_database()
                 AND pid <> pg_backend_pid()
-                AND state = 'idle'
-                AND state_change < NOW() - INTERVAL '5 minutes';
+                GROUP BY application_name, state
             """)
             
+            total_connections = sum(row['conn_count'] for row in stats)
+            
+            # Only cleanup if we're approaching capacity
+            if total_connections > (settings.MAX_CONNECTIONS * 0.8):  # 80% threshold
+                # Kill idle connections older than 10 minutes
+                await conn.execute("""
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = current_database()
+                    AND pid <> pg_backend_pid()
+                    AND state = 'idle'
+                    AND state_change < NOW() - INTERVAL '10 minutes'
+                    -- Preserve at least one connection per worker
+                    AND application_name IN (
+                        SELECT application_name 
+                        FROM pg_stat_activity 
+                        GROUP BY application_name 
+                        HAVING COUNT(*) > 1
+                    );
+                """)
+                
+                # Log detailed cleanup info
+                logger.info(
+                    "Connection cleanup stats",
+                    extra={
+                        "total_connections": total_connections,
+                        "max_connections": settings.MAX_CONNECTIONS,
+                        "connection_stats": [
+                            {
+                                "app": row['application_name'],
+                                "state": row['state'],
+                                "count": row['conn_count'],
+                                "max_idle_time": row['max_idle_time']
+                            }
+                            for row in stats
+                        ]
+                    }
+                )
+            
             await conn.close()
-            logger.info("Successfully cleaned up stale database connections")
         except Exception as e:
             logger.error(f"Error during connection cleanup: {str(e)}")
 
