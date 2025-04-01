@@ -144,10 +144,10 @@ async def test_alternative_criteria():
     
     try:
         conn = await asyncpg.connect(
-            host='***REMOVED***',
+            host='65.108.57.232',
             port=5432,
             user='miningcore',
-            password='***REMOVED***',
+            password='this_IS_thesigmining',
             database='miningcore'
         )
         
