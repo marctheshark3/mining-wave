@@ -209,7 +209,7 @@ async def get_weekly_loyal_miners(
     conn: asyncpg.Connection = Depends(get_connection),
     limit: int = Query(default=100, ge=1, le=1000)
 ) -> List[Dict[str, Any]]:
-    """Get miners who have been active for at least 4 out of the last 7 days, with at least 8 hours of activity per active day"""
+    """Get miners who have been active for at least 4 out of the last 7 days, with at least 6 hours of activity per active day"""
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=7)
     
@@ -265,7 +265,7 @@ async def check_miner_bonus_eligibility(
                 "date": row['day'].isoformat(),
                 "active_hours": row['active_hours'],
                 "avg_hashrate": float(row['daily_avg_hashrate']),
-                "meets_hours_requirement": row['active_hours'] >= 8
+                "meets_hours_requirement": row['meets_hours_requirement']
             }
             for row in daily_stats
         ]
@@ -281,12 +281,12 @@ async def check_miner_bonus_eligibility(
             "qualifying_days": qualifying_days,
             "needs_days": qualifying_days >= 4,
             "daily_breakdown": daily_breakdown,
-            "analysis": f"Miner was active for {total_days} days, with {qualifying_days} days meeting the 8-hour minimum requirement."
+            "analysis": f"Miner was active for {total_days} days, with {qualifying_days} days meeting the 6-hour minimum requirement."
         }
         
         if not result["eligible"]:
             if qualifying_days < 4:
-                result["reason"] = f"Only {qualifying_days} days met the minimum 8-hour requirement (needs 4)"
+                result["reason"] = f"Only {qualifying_days} days met the minimum 6-hour requirement (needs 4)"
             else:
                 result["reason"] = "Unknown reason - please check daily breakdown"
                 
@@ -383,14 +383,86 @@ async def get_all_miners(
 async def get_top_miners(conn: asyncpg.Connection = Depends(get_connection)):
     """Get top 20 miners by hashrate"""
     try:
+        # Try the optimized time-range based query first
         rows = await conn.fetch(TOP_MINERS_QUERY)
-        return [{
-            "address": row['miner'],
-            "hashrate": float(row['hashrate'])
-        } for row in rows]
+        
+        # If no results, try a fallback query with a wider time range
+        if not rows or len(rows) == 0:
+            logger.warning("No miners found with primary query, trying fallback query")
+            fallback_query = """
+                WITH miner_stats AS (
+                    SELECT 
+                        miner,
+                        SUM(hashrate) as hashrate,
+                        SUM(sharespersecond) as sharespersecond,
+                        COUNT(DISTINCT worker) as worker_count 
+                    FROM minerstats
+                    WHERE created >= NOW() - INTERVAL '24 hours'
+                    GROUP BY miner
+                    HAVING SUM(hashrate) > 0
+                )
+                SELECT miner, hashrate, sharespersecond, worker_count
+                FROM miner_stats
+                ORDER BY hashrate DESC
+                LIMIT 20
+            """
+            rows = await conn.fetch(fallback_query)
+        
+        # Log what we found
+        logger.info(f"Found {len(rows)} miners for top miners list")
+        
+        # Add detailed hashrate logging for each miner
+        for row in rows:
+            if row.get('worker_count', 0) > 10:  # Log miners with many workers
+                logger.info(f"Miner hashrate check: {row['miner']} - {float(row['hashrate']):.2f} H/s with {row['worker_count']} workers")
+                
+                # Try to query and log individual worker hashrates
+                try:
+                    worker_details = await conn.fetch("""
+                        SELECT worker, hashrate
+                        FROM minerstats
+                        WHERE miner = $1
+                        AND created >= NOW() - INTERVAL '1 hour'
+                        ORDER BY hashrate DESC
+                        LIMIT 10
+                    """, row['miner'])
+                    
+                    if worker_details:
+                        logger.info(f"Top workers for {row['miner']}:")
+                        for i, worker in enumerate(worker_details):
+                            logger.info(f"  {i+1}. {worker['worker']}: {float(worker['hashrate']):.2f} H/s")
+                except Exception as e:
+                    logger.error(f"Error fetching worker details: {str(e)}")
+        
+        # Return the results, ensuring we have at least the miner and hashrate fields
+        formatted_results = []
+        for row in rows:
+            if 'miner' in row and row['miner'] and 'hashrate' in row:
+                miner_data = {
+                    "address": row['miner'],
+                    "hashrate": float(row['hashrate'])
+                }
+                
+                # Add optional fields if they exist
+                if 'sharespersecond' in row and row['sharespersecond'] is not None:
+                    miner_data["sharesPerSecond"] = float(row['sharespersecond'])
+                
+                if 'worker_count' in row and row['worker_count'] is not None:
+                    miner_data["workerCount"] = int(row['worker_count'])
+                
+                if 'last_stat_time' in row and row['last_stat_time'] is not None:
+                    miner_data["lastSeen"] = row['last_stat_time'].isoformat()
+                
+                if 'last_block_found' in row and row['last_block_found'] is not None:
+                    miner_data["lastBlockFound"] = row['last_block_found'].isoformat()
+                
+                formatted_results.append(miner_data)
+        
+        return formatted_results
     except Exception as e:
-        logger.error(f"Error retrieving top miners: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error retrieving top miners: {str(e)}", exc_info=True)
+        # Return an empty list instead of an error
+        return []
 
 @router.get("/miners/{address}", response_model=MinerDetails)
 @cache(expire=30, key_builder=MINER_CACHE)

@@ -8,15 +8,16 @@ import asyncpg
 from datetime import datetime
 from utils.calculate import calculate_mining_effort
 from utils.cache import MINER_CACHE, POOL_CACHE
+from utils.blockchain import get_demurrage_for_block
 
 from .models import PoolStats, Block, Payment, Share
 from .queries import (
     POOL_STATS_QUERY, MINER_BLOCKS_QUERY, MINER_PAYMENTS_QUERY,
-    CURRENT_SHARES_QUERY
+    CURRENT_SHARES_QUERY, POOL_BLOCKS_QUERY
 )
 from .utils import (
     format_block_data, format_payment_data, format_share_data,
-    get_address_column, handle_db_error
+    get_address_column, handle_db_error, DEMURRAGE_WALLET
 )
 
 router = APIRouter()
@@ -38,7 +39,7 @@ async def get_connection():
 from utils.calculate import calculate_mining_effort
 from utils.logging import logger
 
-@router.get("/poolstats", response_model=PoolStats)
+@router.get("/poolstats")
 @cache(expire=60, key_builder=POOL_CACHE)
 async def get_pool_stats(conn: asyncpg.Connection = Depends(get_connection)):
     """Get current pool statistics"""
@@ -54,6 +55,10 @@ async def get_pool_stats(conn: asyncpg.Connection = Depends(get_connection)):
                 SELECT COUNT(*) as blocks_24h
                 FROM blocks
                 WHERE created >= NOW() - INTERVAL '24 hours'
+            ),
+            total_blocks AS (
+                SELECT COUNT(*) as total_blocks_count
+                FROM blocks
             ),
             last_block AS (
                 SELECT created as last_block_time
@@ -75,9 +80,11 @@ async def get_pool_stats(conn: asyncpg.Connection = Depends(get_connection)):
                 ls.connectedpeers,
                 ls.created,
                 pb.blocks_24h,
+                tb.total_blocks_count,
                 lb.last_block_time
             FROM latest_stats ls
             CROSS JOIN pool_blocks pb
+            CROSS JOIN total_blocks tb
             CROSS JOIN last_block lb
         """
         
@@ -93,6 +100,8 @@ async def get_pool_stats(conn: asyncpg.Connection = Depends(get_connection)):
         logger.info(f"Network hashrate: {stats['networkhashrate']}")
         logger.info(f"Pool hashrate: {stats['poolhashrate']}")
         logger.info(f"Last block time: {stats.get('last_block_time')}")
+        logger.info(f"Total blocks found: {stats['total_blocks_count']}")
+        logger.info(f"Blocks found in last 24h: {stats['blocks_24h']}")
         
         # Calculate effort
         if stats.get('last_block_time'):
@@ -108,7 +117,29 @@ async def get_pool_stats(conn: asyncpg.Connection = Depends(get_connection)):
             logger.warning("No last block time found, setting effort to 0")
             stats['effort'] = 0.0
             
-        return stats
+        # Format response to match frontend expected structure
+        formatted_response = {
+            "poolId": stats['poolid'],
+            "poolStats": {
+                "connectedMiners": stats['connectedminers'],
+                "poolHashrate": float(stats['poolhashrate']),
+                "sharesPerSecond": float(stats['sharespersecond'])
+            },
+            "networkStats": {
+                "networkHashrate": float(stats['networkhashrate']),
+                "networkDifficulty": float(stats['networkdifficulty']),
+                "lastNetworkBlockTime": stats['lastnetworkblocktime'].isoformat() if stats['lastnetworkblocktime'] else None,
+                "blockHeight": stats['blockheight'],
+                "connectedPeers": stats['connectedpeers']
+            },
+            "effort": float(stats['effort']),
+            "blocks24h": stats['blocks_24h'],
+            "totalBlocks": stats['total_blocks_count'],
+            "lastBlockTime": stats['last_block_time'].isoformat() if stats['last_block_time'] else None,
+            "created": stats['created'].isoformat() if stats['created'] else None
+        }
+            
+        return formatted_response
     except Exception as e:
         logger.error(f"Error getting pool stats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -132,11 +163,64 @@ async def get_miner_blocks(
                 row['current_hashrate'] if row['current_hashrate'] else 0,
                 row['created'].isoformat()
             )
-            blocks.append(format_block_data(row, effort))
+            
+            # Check for demurrage info
+            block_height = row['blockheight']
+            has_demurrage, demurrage_amount = await get_demurrage_for_block(block_height, DEMURRAGE_WALLET)
+            
+            blocks.append(format_block_data(
+                row=row, 
+                effort=effort,
+                has_demurrage=has_demurrage,
+                demurrage_amount=demurrage_amount
+            ))
         
         return blocks
     except Exception as e:
         error_msg = handle_db_error(f"retrieving blocks for miner {address}", e)
+        raise MiningCoreException(error_msg)
+
+@router.get("/blocks", response_model=List[Block])
+@cache(expire=30, key_builder=POOL_CACHE)
+async def get_pool_blocks(
+    conn: asyncpg.Connection = Depends(get_connection),
+    limit: int = Query(100, ge=1, le=1000)
+):
+    """Get all blocks found by the pool"""
+    try:
+        rows = await conn.fetch(POOL_BLOCKS_QUERY, limit)
+        
+        blocks = []
+        for row in rows:
+            effort = float(row['stored_effort']) if row['stored_effort'] is not None else 0.0
+            
+            # Check for demurrage info
+            block_height = row['blockheight']
+            has_demurrage, demurrage_amount = await get_demurrage_for_block(block_height, DEMURRAGE_WALLET)
+            
+            # Debug miner information
+            miner_address = row.get('miner')
+            if miner_address:
+                logger.info(f"Block {block_height} has miner: {miner_address}")
+            else:
+                logger.info(f"Block {block_height} has NO miner data")
+            
+            formatted_block = format_block_data(
+                row=row, 
+                effort=effort,
+                has_demurrage=has_demurrage,
+                demurrage_amount=demurrage_amount
+            )
+            
+            # Ensure miner is explicitly added even if None
+            if 'miner' not in formatted_block:
+                formatted_block['miner'] = miner_address
+                
+            blocks.append(formatted_block)
+        
+        return blocks
+    except Exception as e:
+        error_msg = handle_db_error("retrieving pool blocks", e)
         raise MiningCoreException(error_msg)
 
 @router.get("/payments/{address}", response_model=List[Payment])

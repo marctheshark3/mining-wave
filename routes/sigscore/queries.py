@@ -6,7 +6,8 @@ LOYAL_MINERS_QUERY = """
             miner,
             date_trunc('hour', created) AS hour,
             DATE(created) AS day,
-            AVG(hashrate) AS avg_hashrate
+            AVG(hashrate) as avg_hashrate,
+            COUNT(*) as datapoints
         FROM minerstats
         WHERE created >= $1 AND created <= $2
         GROUP BY miner, date_trunc('hour', created), DATE(created)
@@ -16,31 +17,37 @@ LOYAL_MINERS_QUERY = """
         SELECT 
             miner,
             day,
-            COUNT(DISTINCT hour) AS active_hours,
-            AVG(avg_hashrate) AS daily_avg_hashrate
+            COUNT(DISTINCT hour) as active_hours,
+            AVG(avg_hashrate) as daily_avg_hashrate,
+            SUM(datapoints) as total_datapoints
         FROM hourly_activity
         GROUP BY miner, day
+        HAVING COUNT(DISTINCT hour) >= 6  -- At least 6 hours with any activity
     ),
     qualified_miners AS (
         SELECT 
             miner,
             COUNT(DISTINCT day) AS days_active,
-            AVG(daily_avg_hashrate) AS weekly_avg_hashrate
+            AVG(active_hours) as avg_hours_per_day,
+            AVG(daily_avg_hashrate) AS weekly_avg_hashrate,
+            SUM(total_datapoints) as week_datapoints
         FROM daily_activity
-        WHERE active_hours >= 8
         GROUP BY miner
-        HAVING COUNT(DISTINCT day) >= 4
+        HAVING COUNT(DISTINCT day) >= 4  -- Active on at least 4 days
+        AND AVG(active_hours) >= 6  -- Average at least 6 hours per day
     )
     SELECT 
         qm.miner,
         qm.days_active,
+        qm.avg_hours_per_day,
         qm.weekly_avg_hashrate,
+        qm.week_datapoints,
         COALESCE(b.amount, 0) as current_balance,
         MAX(p.created) as last_payment_date
     FROM qualified_miners qm
     LEFT JOIN balances b ON qm.miner = b.address
     LEFT JOIN payments p ON qm.miner = p.address
-    GROUP BY qm.miner, qm.days_active, qm.weekly_avg_hashrate, b.amount
+    GROUP BY qm.miner, qm.days_active, qm.avg_hours_per_day, qm.weekly_avg_hashrate, qm.week_datapoints, b.amount
     ORDER BY qm.weekly_avg_hashrate DESC
     LIMIT $3
 """
@@ -167,7 +174,7 @@ MINER_BONUS_DIAGNOSTIC_QUERY = """
         active_hours,
         daily_avg_hashrate,
         CASE 
-            WHEN active_hours >= 8 THEN true 
+            WHEN active_hours >= 6 THEN true 
             ELSE false 
         END as meets_hours_requirement
     FROM daily_breakdown
@@ -313,13 +320,36 @@ ALL_MINERS_QUERY = """
 """
 
 TOP_MINERS_QUERY = """
-    SELECT miner, hashrate
-    FROM (
-        SELECT DISTINCT ON (miner) miner, hashrate
+    WITH latest_timestamp AS (
+        SELECT MAX(created) as max_created
         FROM minerstats
+    ),
+    miner_hashrates AS (
+        SELECT 
+            miner,
+            SUM(hashrate) as hashrate,
+            SUM(sharespersecond) as sharespersecond,
+            COUNT(DISTINCT worker) as worker_count
+        FROM minerstats
+        WHERE created >= NOW() - INTERVAL '1 hour'
+        GROUP BY miner
+        HAVING SUM(hashrate) > 0
+    ),
+    latest_blocks AS (
+        SELECT DISTINCT ON (miner) miner, created as last_block_found
+        FROM blocks
         ORDER BY miner, created DESC
-    ) as latest_stats
-    ORDER BY hashrate DESC
+    )
+    SELECT 
+        mh.miner,
+        mh.hashrate,
+        mh.sharespersecond,
+        mh.worker_count,
+        (SELECT max_created FROM latest_timestamp) as last_stat_time,
+        lb.last_block_found
+    FROM miner_hashrates mh
+    LEFT JOIN latest_blocks lb ON mh.miner = lb.miner
+    ORDER BY mh.hashrate DESC
     LIMIT 20
 """
 

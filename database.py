@@ -21,7 +21,25 @@ class DatabasePool:
         if not cls._instance:
             async with cls._lock:
                 if not cls._instance:
-                    cls._instance = await cls._create_pool()
+                    # Retry with exponential backoff
+                    retry_count = 0
+                    max_retries = 5
+                    
+                    while retry_count < max_retries:
+                        try:
+                            cls._instance = await cls._create_pool()
+                            break
+                        except Exception as e:
+                            retry_count += 1
+                            wait_time = 2 ** retry_count
+                            logger.error(f"Failed to create DB pool (attempt {retry_count}/{max_retries}): {str(e)}")
+                            
+                            if retry_count >= max_retries:
+                                logger.critical("Maximum DB connection attempts reached!")
+                                raise
+                                
+                            logger.info(f"Retrying in {wait_time} seconds...")
+                            await asyncio.sleep(wait_time)
         return cls._instance
 
     @classmethod
@@ -53,8 +71,8 @@ class DatabasePool:
                 max_size=per_worker_max,  # Adjusted for per-worker
                 max_queries=50000,
                 max_inactive_connection_lifetime=600.0,  # 10 minutes
-                timeout=30.0,
-                command_timeout=60.0,
+                timeout=settings.CONNECTION_TIMEOUT,
+                command_timeout=settings.COMMAND_TIMEOUT,
                 setup=cls._setup_connection,
                 init=init_connection
             )
@@ -71,15 +89,30 @@ class DatabasePool:
                 }
             )
             
+            # Start periodic cleanup
+            asyncio.create_task(cls._periodic_cleanup())
+            
             return pool
         except Exception as e:
             logger.error(f"Failed to create connection pool: {str(e)}")
             raise
 
+    @classmethod
+    async def _periodic_cleanup(cls):
+        """Run periodic cleanup of connections"""
+        while True:
+            try:
+                await asyncio.sleep(settings.CLEANUP_INTERVAL)
+                logger.info("Running scheduled connection pool cleanup")
+                await cls.cleanup_connections()
+            except Exception as e:
+                logger.error(f"Error during scheduled cleanup: {str(e)}")
+                await asyncio.sleep(60)  # Wait longer on error
+
     @staticmethod
     async def _setup_connection(conn: asyncpg.Connection):
         """Configure each connection in the pool"""
-        await conn.execute('SET statement_timeout = 30000')  # 30 seconds
+        await conn.execute(f'SET statement_timeout = {settings.STATEMENT_TIMEOUT}')
         await conn.execute('SET idle_in_transaction_session_timeout = 60000')  # 1 minute
         await conn.execute("SET application_name TO 'mining-wave-worker'")
 
@@ -113,6 +146,16 @@ class DatabasePool:
             logger.warning("Too many connections, initiating connection cleanup")
             await cls.cleanup_connections()
             raise
+        except asyncpg.ConnectionDoesNotExistError:
+            logger.error("Connection lost during operation, will reinitialize on next attempt")
+            # Reset the pool on connection errors
+            if cls._instance:
+                try:
+                    await cls._instance.close()
+                except:
+                    pass
+                cls._instance = None
+            raise
         except Exception as e:
             logger.error(f"Database connection error: {str(e)}")
             await cls.handle_connection_error()
@@ -127,7 +170,8 @@ class DatabasePool:
                 port=settings.DB_PORT,
                 user=settings.DB_USER,
                 password=settings.DB_PASSWORD,
-                database=settings.DB_NAME
+                database=settings.DB_NAME,
+                timeout=settings.CONNECTION_TIMEOUT
             )
             
             # Get detailed connection statistics

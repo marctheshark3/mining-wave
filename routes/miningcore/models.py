@@ -31,6 +31,9 @@ class Block(BaseModel):
     effort: float
     reward: float
     confirmationprogress: float
+    hasDemurrage: bool = False
+    demurrageAmount: float = 0.0
+    miner: Optional[str] = None
 
 class Payment(BaseModel):
     created: str

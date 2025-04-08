@@ -2,14 +2,20 @@
 from typing import Dict, Any, Optional
 from utils.logging import logger
 
-def format_block_data(row: Dict[str, Any], effort: float) -> Dict[str, Any]:
+# Constants
+DEMURRAGE_WALLET = "9fE5o7913CKKe6wvNgM11vULjTuKiopPcvCaj7t2zcJWXM2gcLu"
+
+def format_block_data(row: Dict[str, Any], effort: float, has_demurrage: bool = False, demurrage_amount: float = 0.0) -> Dict[str, Any]:
     """Format block data for API response"""
     return {
         "created": row['created'].isoformat(),
         "blockheight": row['blockheight'],
         "effort": effort,
         "reward": float(row['reward']) if row['reward'] else 0,
-        "confirmationprogress": float(row['confirmationprogress']) if row['confirmationprogress'] else 0
+        "confirmationprogress": float(row['confirmationprogress']) if row['confirmationprogress'] else 0,
+        "hasDemurrage": has_demurrage,
+        "demurrageAmount": demurrage_amount,
+        "miner": row.get('miner')
     }
 
 def format_payment_data(row: Dict[str, Any]) -> Dict[str, Any]:

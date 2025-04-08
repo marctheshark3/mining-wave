@@ -108,6 +108,7 @@ MINER_CACHE = create_cache_key_builder("miner")
 POOL_CACHE = create_cache_key_builder("pool")
 WORKER_CACHE = create_cache_key_builder("worker")
 SETTINGS_CACHE = create_cache_key_builder("settings")
+DEMURRAGE_CACHE = create_cache_key_builder("demurrage")
 
 async def setup_cache(redis_url: str):
     """Initialize Redis cache with optimized settings"""

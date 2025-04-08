@@ -71,6 +71,28 @@ MINER_BLOCKS_QUERY = """
     LIMIT $2
 """
 
+POOL_BLOCKS_QUERY = """
+    WITH pool_stats AS (
+        SELECT networkdifficulty, networkhashrate
+        FROM poolstats
+        ORDER BY created DESC
+        LIMIT 1
+    )
+    SELECT 
+        b.created,
+        b.blockheight,
+        b.effort as stored_effort,
+        b.reward,
+        b.confirmationprogress,
+        p.networkdifficulty,
+        p.networkhashrate,
+        b.miner
+    FROM blocks b
+    CROSS JOIN pool_stats p
+    ORDER BY b.created DESC
+    LIMIT $1
+"""
+
 MINER_PAYMENTS_QUERY = """
     SELECT 
         created,

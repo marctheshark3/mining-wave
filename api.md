@@ -51,6 +51,15 @@ This document provides information about all available API endpoints in the Mini
 - **Response**: Pool stats including hashrate, connected miners, and network data
 - **Cache**: 60 seconds
 
+### Pool Blocks
+- **Endpoint**: `/miningcore/blocks`
+- **Method**: GET
+- **Description**: Get all blocks found by the pool
+- **Parameters**:
+  - `limit`: Maximum number of results (default: 100, max: 1000)
+- **Response**: List of blocks found by the pool, including demurrage information
+- **Cache**: 30 seconds
+
 ### Miner Blocks
 - **Endpoint**: `/miningcore/blocks/{address}`
 - **Method**: GET
@@ -58,7 +67,9 @@ This document provides information about all available API endpoints in the Mini
 - **Parameters**:
   - `address`: Miner's address
   - `limit`: Maximum number of results (default: 100, max: 1000)
-- **Response**: List of blocks found by the miner
+- **Response**: List of blocks found by the miner, including demurrage information:
+  - `hasDemurrage`: Whether demurrage was received for this block
+  - `demurrageAmount`: The amount of demurrage received (if any)
 - **Cache**: 30 seconds
 
 ### Miner Payments
@@ -206,4 +217,90 @@ This document provides information about all available API endpoints in the Mini
 - **Parameters**:
   - `miner_address`: Miner's address
 - **Response**: Miner's settings
-- **Cache**: 300 seconds 
+- **Cache**: 300 seconds
+
+## Demurrage Routes
+
+### Demurrage Wallet
+- **Endpoint**: `/demurrage/wallet`
+- **Method**: GET
+- **Description**: Get detailed statistics and transactions for the demurrage wallet
+- **Parameters**:
+  - `limit`: Maximum number of transactions to fetch (default: 20, max: 100)
+- **Response**: Comprehensive demurrage wallet statistics including:
+  - Current wallet balance
+  - Recent incoming transactions (with verification status)
+  - Recent outgoing transactions (distributions)
+  - Total demurrage collected (verified)
+  - Total demurrage distributed
+  - Last distribution details
+  - Next estimated distribution (if predictable)
+- **Cache**: 60 seconds
+
+### Demurrage Statistics
+- **Endpoint**: `/demurrage/stats`
+- **Method**: GET
+- **Description**: Get comprehensive statistics about demurrage across different time periods
+- **Response**: Detailed demurrage statistics including:
+  - Period-specific stats (24h, 7d, 30d, all time):
+    - Total demurrage collected
+    - Average demurrage per block
+    - Number of blocks with demurrage
+    - Total blocks in period
+    - Percentage of blocks with demurrage
+  - Estimated earnings for different hashrate levels (1 GH/s, 5 GH/s, 10 GH/s, 50 GH/s)
+  - Current pool hashrate
+  - Timestamp of last update
+- **Cache**: 300 seconds
+
+### Miner Demurrage Earnings
+- **Endpoint**: `/demurrage/miner/{address}`
+- **Method**: GET
+- **Description**: Get demurrage earnings specific to a miner address
+- **Parameters**:
+  - `address`: The miner's Ergo address
+- **Response**: Detailed information about the miner's demurrage earnings including:
+  - Historical share of pool hashrate
+  - Demurrage earnings across different time periods
+  - Recent payments received from the demurrage wallet
+  - Projected next payment
+- **Cache**: 120 seconds
+
+### Demurrage Health
+- **Endpoint**: `/demurrage/health`
+- **Method**: GET
+- **Description**: Test blockchain API connectivity and health for demurrage monitoring
+- **Response**: Health status information including:
+  - Explorer API status and block height
+  - Node API status and block height
+  - Block retrieval test status
+  - Overall health status (ok/degraded)
+- **Cache**: 60 seconds
+
+## Demurrage Monitoring
+
+The system includes an advanced demurrage monitoring solution that automatically detects and records demurrage payments in the blockchain. This monitoring uses a three-step detection approach:
+
+1. **Address-based detection**: Looks for transactions with outputs to the demurrage wallet address
+2. **Known amount detection**: Identifies transactions based on previously recorded demurrage amounts
+3. **Pattern-based detection**: Recognizes potential demurrage payments based on common patterns (amounts ending in .x25 or .x75)
+
+A continuous monitoring script is available that:
+- Checks new blocks for demurrage payments
+- Records all demurrage information in a structured JSON file
+- Provides summaries of demurrage activity
+- Maintains a history of all demurrage blocks for statistical analysis
+
+To use the monitoring system:
+```bash
+# Monitor mode - continuously check for new blocks
+python scripts/monitor_demurrage.py
+
+# Summary mode - display statistics about recorded demurrage
+python scripts/monitor_demurrage.py summary
+
+# Backfill mode - check historical blocks for demurrage
+python scripts/monitor_demurrage.py backfill <start_height> <end_height>
+```
+
+All demurrage data is stored in `/data/demurrage_records.json` and is automatically used by the API endpoints for accurate statistics. 

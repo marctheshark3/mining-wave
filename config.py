@@ -19,14 +19,18 @@ class Settings(BaseSettings):
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost")
     
     # Pool settings
-    POOL_MIN_SIZE: int = int(os.getenv("POOL_MIN_SIZE", "10"))
-    POOL_MAX_SIZE: int = int(os.getenv("POOL_MAX_SIZE", "50"))
-    DB_TIMEOUT: int = int(os.getenv("DB_TIMEOUT", "30"))
-    STATEMENT_TIMEOUT: int = int(os.getenv("STATEMENT_TIMEOUT", "30000"))
+    POOL_MIN_SIZE: int = int(os.getenv("POOL_MIN_SIZE", "2"))
+    POOL_MAX_SIZE: int = int(os.getenv("POOL_MAX_SIZE", "8"))
+    CONNECTION_TIMEOUT: int = int(os.getenv("CONNECTION_TIMEOUT", "10"))
+    COMMAND_TIMEOUT: int = int(os.getenv("COMMAND_TIMEOUT", "30"))
+    STATEMENT_TIMEOUT: int = int(os.getenv("STATEMENT_TIMEOUT", "20000"))
+    CLEANUP_INTERVAL: int = int(os.getenv("CLEANUP_INTERVAL", "300"))
     
     # API settings
-    MAX_CONNECTIONS: int = int(os.getenv("MAX_CONNECTIONS", "100"))
-    DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
+    MAX_CONNECTIONS: int = int(os.getenv("MAX_CONNECTIONS", "50"))
+    DEBUG: bool = True
+    THROTTLE_RATE: int = int(os.getenv("THROTTLE_RATE", "50"))
+    ALLOWED_ORIGINS: str = ""  # Comma-separated list of allowed origins in production
 
     # Monitoring settings
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -39,6 +43,11 @@ class Settings(BaseSettings):
     # Health check settings
     HEALTH_CHECK_INTERVAL: int = int(os.getenv("HEALTH_CHECK_INTERVAL", "30"))  # seconds
     MAX_UNHEALTHY_COUNT: int = int(os.getenv("MAX_UNHEALTHY_COUNT", "3"))
+
+    # Ergo Explorer settings
+    EXPLORER_API_RETRY_COUNT: int = int(os.getenv("EXPLORER_API_RETRY_COUNT", "3"))
+    EXPLORER_API_RETRY_DELAY: int = int(os.getenv("EXPLORER_API_RETRY_DELAY", "3"))
+    EXPLORER_API_TIMEOUT: int = int(os.getenv("EXPLORER_API_TIMEOUT", "10"))
 
     class Config:
         env_file = ".env"

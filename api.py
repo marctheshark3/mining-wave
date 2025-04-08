@@ -11,9 +11,10 @@ import uvicorn
 from typing import Dict, Any
 import psutil
 import time
+from fastapi.responses import RedirectResponse
 
 from database import DatabasePool
-from routes import miningcore, sigscore, general
+from routes import miningcore, sigscore, general, demurrage
 from middleware import setup_middleware
 from utils.logging import logger, start_telegram_handler, stop_telegram_handler
 from config import settings
@@ -154,18 +155,38 @@ def create_application() -> FastAPI:
     )
     
     # Setup CORS
+    origins = [
+        "http://localhost:5173",    # Vite development server
+        "http://localhost:3000",    # Alternative development port
+        "http://localhost:8080",    # Another common development port
+        "http://127.0.0.1:5173",    # Alternative localhost
+        "http://127.0.0.1:3000",    # Alternative localhost
+        "http://127.0.0.1:8080",    # Alternative localhost
+    ]
+    
+    # In production, add the actual domain
+    if not settings.DEBUG:
+        # Add production domains here
+        production_origins = settings.ALLOWED_ORIGINS.split(',') if settings.ALLOWED_ORIGINS else []
+        origins.extend(production_origins)
+    else:
+        # In development, can allow all origins
+        origins.append("*")
+    
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Adjust for production
+        allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
+        max_age=86400,  # Cache preflight requests for 24 hours
     )
     
     # Include routers
     app.include_router(general.router)
     app.include_router(miningcore.router, prefix="/miningcore")
     app.include_router(sigscore.router, prefix="/sigscore")
+    app.include_router(demurrage.router, prefix="/demurrage")
     
     # Additional middleware
     setup_middleware(app)
@@ -214,6 +235,15 @@ async def list_routes():
                     "name": route.name if hasattr(route, "name") else None
                 })
     return sorted(routes, key=lambda x: x["path"])
+
+@app.get("/sigscore/demurrage/{path:path}", include_in_schema=False)
+async def redirect_old_demurrage_path(path: str):
+    """
+    Redirect legacy /sigscore/demurrage/* requests to /demurrage/*
+    This handles clients that haven't updated to the new API path structure.
+    """
+    logger.info(f"Redirecting legacy request from /sigscore/demurrage/{path} to /demurrage/{path}")
+    return RedirectResponse(url=f"/demurrage/{path}", status_code=307)
 
 if __name__ == "__main__":
     uvicorn.run(
