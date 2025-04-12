@@ -8,6 +8,8 @@ import asyncio
 import json
 import aiohttp
 from decimal import Decimal, InvalidOperation
+from typing import Dict, List, Optional, Tuple, Any
+from pydantic import BaseModel, Field
 
 from database import DatabasePool
 from utils.logging import logger
@@ -23,6 +25,17 @@ from utils.blockchain import (
     NODE_API_BASE
 )
 from utils.cache import DEMURRAGE_CACHE
+
+# --- Pydantic Models for Response Structure ---
+class TokenInfo(BaseModel):
+    tokenId: str
+    amount: int
+
+class BlockDemurrageInfo(BaseModel):
+    blockHeight: int
+    totalErg: Decimal = Field(..., description="Total ERG collected in this block")
+    tokens: Dict[str, int] = Field(..., description="Dictionary of token IDs and amounts collected")
+# --- End Pydantic Models ---
 
 # Create router
 router = APIRouter()
@@ -1727,4 +1740,151 @@ async def get_demurrage_epoch_stats(
         return response
     except Exception as e:
         logger.error(f"Error in get_demurrage_epoch_stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error calculating epoch statistics: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error calculating epoch statistics: {str(e)}")
+
+@router.get("/blocks", response_model=List[BlockDemurrageInfo])
+@cache(expire=CACHE_EXPIRY * 2, key_builder=lambda *args, **kwargs: f"demurrage_blocks_{kwargs.get('limit', 100)}")
+async def get_demurrage_blocks(
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of recent blocks to return")
+) -> List[BlockDemurrageInfo]:
+    """
+    Retrieves demurrage collections (ERG and tokens) grouped by block height.
+    Fetches transactions for the demurrage wallet and aggregates incoming assets per block.
+    Filters out transactions where the demurrage wallet is an input (outgoing).
+    Returns a list sorted by block height descending.
+    """
+    logger.info(f"Starting get_demurrage_blocks endpoint with limit={limit}")
+    blocks_data: Dict[int, Dict[str, Any]] = {}
+    max_transactions_to_fetch = 5000 # Limit the history scan to avoid excessive API calls
+
+    try:
+        logger.info("Attempting to create aiohttp ClientSession.")
+        async with aiohttp.ClientSession() as session:
+            # Fetch transactions using the helper function
+            logger.info(f"Calling fetch_all_demurrage_transactions for wallet {DEMURRAGE_WALLET}")
+            transactions = await fetch_all_demurrage_transactions(DEMURRAGE_WALLET, session, max_transactions_to_fetch)
+            logger.info(f"Received {len(transactions)} transactions from fetch_all_demurrage_transactions.")
+
+        if not transactions:
+            logger.info(f"No transactions found for demurrage wallet {DEMURRAGE_WALLET}, returning empty list.")
+            return []
+
+        # Process transactions to aggregate data by block
+        logger.info("Starting processing of transactions to aggregate by block...")
+        processed_count = 0
+        skipped_outgoing_count = 0 # Counter for skipped outgoing Txs
+        for tx in transactions:
+            # Logging progress periodically
+            processed_count += 1
+            if processed_count % 500 == 0:
+                logger.debug(f"Processed {processed_count}/{len(transactions)} transactions...")
+
+            block_height = tx.get("inclusionHeight")
+            if block_height is None:
+                continue # Skip transactions not yet included in a block
+
+            # --- Add check for outgoing transactions ---
+            is_outgoing = False
+            for input_box in tx.get("inputs", []):
+                # Check if the input address matches the demurrage wallet
+                if input_box.get("address") == DEMURRAGE_WALLET:
+                    is_outgoing = True
+                    logger.debug(f"Transaction {tx.get('id')} identified as outgoing (input from demurrage wallet), skipping.")
+                    break # Found an input from our wallet, it's outgoing
+
+            if is_outgoing:
+                skipped_outgoing_count += 1
+                continue # Skip processing this transaction further
+            # --- End check ---
+
+            # Initialize block entry if it doesn't exist
+            if block_height not in blocks_data:
+                blocks_data[block_height] = {"totalErg": Decimal(0), "tokens": {}}
+
+            # Check outputs for funds sent to the demurrage wallet
+            for output in tx.get("outputs", []):
+                if output.get("address") == DEMURRAGE_WALLET:
+                    # Add ERG value
+                    erg_value = nano_ergs_to_ergs(output.get("value", 0))
+                    # Convert erg_value to Decimal before adding
+                    blocks_data[block_height]["totalErg"] += Decimal(str(erg_value))
+
+                    # Add tokens
+                    for asset in output.get("assets", []):
+                        token_id = asset.get("tokenId")
+                        amount = asset.get("amount", 0)
+                        if token_id and amount > 0:
+                            current_amount = blocks_data[block_height]["tokens"].get(token_id, 0)
+                            blocks_data[block_height]["tokens"][token_id] = current_amount + amount
+
+    except Exception as e:
+        logger.error(f"Error processing demurrage transactions for block view: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error processing demurrage data")
+
+    # Convert aggregated data to the response model format
+    logger.info(f"Finished processing transactions. Found data for {len(blocks_data)} blocks. Skipped {skipped_outgoing_count} outgoing transactions.") # Updated log
+    logger.info("Converting aggregated data to response model...")
+    response_list = [
+        BlockDemurrageInfo(
+            blockHeight=height,
+            totalErg=data["totalErg"],
+            tokens=data["tokens"]
+        )
+        for height, data in blocks_data.items() if data["totalErg"] > 0 or data["tokens"] # Only include blocks with actual collection
+    ]
+
+    # Sort by block height descending and apply limit
+    logger.info(f"Sorting {len(response_list)} blocks by height descending.")
+    response_list.sort(key=lambda x: x.blockHeight, reverse=True)
+
+    logger.info(f"Returning final list of {min(len(response_list), limit)} blocks.")
+    return response_list[:limit]
+
+# --- Helper Function ---
+async def fetch_all_demurrage_transactions(address: str, session: aiohttp.ClientSession, max_transactions: int = 2000) -> List[Dict[str, Any]]:
+    """Fetch all transactions for the demurrage address, handling pagination."""
+    logger.info(f"Starting fetch_all_demurrage_transactions for address {address}, max_transactions={max_transactions}")
+    all_transactions = []
+    offset = 0
+    limit = 100  # Adjust limit as needed, max is usually 100-500 for explorer APIs
+
+    while len(all_transactions) < max_transactions:
+        try:
+            url = f"{EXPLORER_API_BASE}/addresses/{address}/transactions?offset={offset}&limit={limit}"
+            logger.debug(f"Fetching transactions from URL: {url}")
+            async with session.get(url) as response:
+                response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                data = await response.json()
+
+                transactions = data.get("items", [])
+                logger.debug(f"Received {len(transactions)} transactions in this batch.")
+                if not transactions:
+                    logger.info("No more transactions found. Finishing fetch.")
+                    break  # No more transactions
+
+                all_transactions.extend(transactions)
+
+                # Check if we've fetched all transactions
+                total_available = data.get("total", 0)
+                logger.debug(f"Total transactions available reported by API: {total_available}")
+                if len(all_transactions) >= total_available:
+                     logger.info(f"Fetched all available transactions ({len(all_transactions)}). Finishing fetch.")
+                     break
+
+                offset += limit
+
+                # Optional: Add a small delay to avoid hitting rate limits
+                await asyncio.sleep(0.1)
+
+        except aiohttp.ClientError as e:
+            logger.error(f"Client error fetching transactions for {address} at offset {offset}: {e}")
+            break # Stop fetching on error
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error fetching transactions for {address} at offset {offset}: {e}")
+            break # Stop fetching on error
+        except Exception as e:
+            logger.error(f"Unexpected error fetching transactions for {address} at offset {offset}: {e}", exc_info=True)
+            break # Stop fetching on unexpected errors
+
+    logger.info(f"Finished fetch_all_demurrage_transactions. Total fetched: {len(all_transactions)}")
+    return all_transactions[:max_transactions] 
