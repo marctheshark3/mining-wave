@@ -235,6 +235,7 @@ async def get_weekly_loyal_miners(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get("/miners/{address}/bonus-eligibility")
+@cache(expire=300, key_builder=MINER_CACHE)
 async def check_miner_bonus_eligibility(
     address: str,
     conn: asyncpg.Connection = Depends(get_connection)
@@ -364,7 +365,7 @@ async def get_pool_history(conn: asyncpg.Connection = Depends(get_connection)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/miners")
-@cache(expire=60, key_builder=POOL_CACHE)
+@cache(expire=180, key_builder=POOL_CACHE)
 async def get_all_miners(
     conn: asyncpg.Connection = Depends(get_connection),
     limit: int = Query(100, ge=1, le=1000),
@@ -379,7 +380,7 @@ async def get_all_miners(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/miners/top")
-@cache(expire=60, key_builder=POOL_CACHE)
+@cache(expire=180, key_builder=POOL_CACHE)
 async def get_top_miners(conn: asyncpg.Connection = Depends(get_connection)):
     """Get top 20 miners by hashrate"""
     try:
@@ -465,7 +466,7 @@ async def get_top_miners(conn: asyncpg.Connection = Depends(get_connection)):
         return []
 
 @router.get("/miners/{address}", response_model=MinerDetails)
-@cache(expire=30, key_builder=MINER_CACHE)
+@cache(expire=180, key_builder=MINER_CACHE)
 async def get_miner_details(
     address: str,
     conn: asyncpg.Connection = Depends(get_connection)
@@ -530,7 +531,7 @@ async def get_miner_details(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/miners/{address}/workers")
-@cache(expire=60, key_builder=WORKER_CACHE)
+@cache(expire=180, key_builder=WORKER_CACHE)
 async def get_miner_worker_history(
     address: str,
     conn: asyncpg.Connection = Depends(get_connection),

@@ -1,20 +1,23 @@
 # routes/miningcore/utils.py
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from utils.logging import logger
+from decimal import Decimal
 
 # Constants
 DEMURRAGE_WALLET = "9fE5o7913CKKe6wvNgM11vULjTuKiopPcvCaj7t2zcJWXM2gcLu"
 
-def format_block_data(row: Dict[str, Any], effort: float, has_demurrage: bool = False, demurrage_amount: float = 0.0) -> Dict[str, Any]:
+def format_block_data(row: Dict[str, Any], effort: float, demurrage_info: Optional[Tuple[Decimal, Dict[str, int]]] = None) -> Dict[str, Any]:
     """Format block data for API response"""
+    demurrage_erg = demurrage_info[0] if demurrage_info else Decimal(0)
+    demurrage_tokens = demurrage_info[1] if demurrage_info else {}
     return {
         "created": row['created'].isoformat(),
         "blockheight": row['blockheight'],
         "effort": effort,
         "reward": float(row['reward']) if row['reward'] else 0,
         "confirmationprogress": float(row['confirmationprogress']) if row['confirmationprogress'] else 0,
-        "hasDemurrage": has_demurrage,
-        "demurrageAmount": demurrage_amount,
+        "demurrageErg": float(demurrage_erg), # Keep the API consistent with float for now
+        "demurrageTokens": demurrage_tokens,
         "miner": row.get('miner')
     }
 

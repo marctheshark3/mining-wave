@@ -708,7 +708,7 @@ async def calculate_comprehensive_statistics(transactions: List[Dict[str, Any]],
     }
 
 @router.get("/wallet")
-@cache(expire=CACHE_EXPIRY, key_builder=DEMURRAGE_CACHE)
+@cache(expire=1800, key_builder=DEMURRAGE_CACHE)
 async def get_demurrage_wallet_stats(
     conn: asyncpg.Connection = Depends(get_connection),
     limit: int = Query(10, ge=1, le=50),  # Reduced default limit
@@ -836,7 +836,7 @@ async def get_demurrage_wallet_stats(
         }
 
 @router.get("/stats")
-@cache(expire=300, key_builder=DEMURRAGE_CACHE)
+@cache(expire=1800, key_builder=DEMURRAGE_CACHE)
 async def get_demurrage_stats(
     conn: asyncpg.Connection = Depends(get_connection)
 ) -> Dict[str, Any]:
@@ -1017,7 +1017,7 @@ async def get_demurrage_stats(
         )
 
 @router.get("/miner/{address}")
-@cache(expire=CACHE_EXPIRY * 2, key_builder=lambda *args, **kwargs: f"demurrage_miner_{kwargs.get('address', '')}")
+@cache(expire=1800, key_builder=lambda *args, **kwargs: f"demurrage_miner_{kwargs.get('address', '')}")
 async def get_miner_demurrage_earnings(
     address: str = Path(..., description="Miner's Ergo address"),
     conn: asyncpg.Connection = Depends(get_connection)
@@ -1132,7 +1132,7 @@ async def get_miner_demurrage_earnings(
                 ]
         
         # 6. Process demurrage info for all unique blocks
-        block_demurrage_info = {}
+        block_demurrage: Dict[int, Decimal] = {}
         unique_block_heights = {block['blockheight'] for block in all_blocks}
         
         # Use a batched approach to process blocks
@@ -1151,9 +1151,9 @@ async def get_miner_demurrage_earnings(
                     if isinstance(result, Exception):
                         logger.warning(f"Failed to get demurrage for block {height}: {str(result)}")
                         error_count += 1
-                        block_demurrage_info[height] = (False, 0)
+                        block_demurrage[height] = (False, 0)
                     else:
-                        block_demurrage_info[height] = result
+                        block_demurrage[height] = result
             except Exception as e:
                 logger.error(f"Batch processing error for blocks {batch[0]}-{batch[-1]}: {str(e)}")
                 # Continue with the next batch rather than failing completely
@@ -1218,8 +1218,8 @@ async def get_miner_demurrage_earnings(
             
             for block in blocks:
                 height = block['blockheight']
-                if height in block_demurrage_info:
-                    has_demurrage, amount = block_demurrage_info[height]
+                if height in block_demurrage:
+                    has_demurrage, amount = block_demurrage[height]
                     if has_demurrage:
                         total_demurrage += amount
                         blocks_with_demurrage += 1
@@ -1306,7 +1306,7 @@ async def get_miner_demurrage_earnings(
             "recentPayments": recent_payments[:10],  # Limit to 10 most recent
             "projectedNextPayment": projected_next_payment,
             "apiStatus": {
-                "processedBlocks": len(block_demurrage_info) - error_count,
+                "processedBlocks": len(block_demurrage) - error_count,
                 "errorCount": error_count,
                 "completionPercentage": round((len(block_heights_list) - error_count) / len(block_heights_list) * 100, 1) if block_heights_list else 100
             }
@@ -1514,7 +1514,7 @@ async def debug_demurrage_calculation() -> Dict[str, Any]:
         }
 
 @router.get("/epochs")
-@cache(expire=CACHE_EXPIRY * 3, key_builder=DEMURRAGE_CACHE)  # Use longer cache expiry time
+@cache(expire=1800, key_builder=DEMURRAGE_CACHE)  # Use longer cache expiry time
 async def get_demurrage_epoch_stats(
     conn: asyncpg.Connection = Depends(get_connection)
 ) -> Dict[str, Any]:
@@ -1610,8 +1610,9 @@ async def get_demurrage_epoch_stats(
                 "epoch": epoch,
                 "startBlock": epoch_start_block,
                 "endBlock": epoch_end_block,
-                "demurrageAmount": 0.0,
-                "blockCount": min(BLOCKS_PER_EPOCH, epoch_end_block - epoch_start_block + 1),
+                "demurrageAmount": Decimal("0.0"), # Use Decimal for precision
+                "blockCountWithDemurrage": 0,
+                "totalBlocksInEpochRange": min(BLOCKS_PER_EPOCH, epoch_end_block - epoch_start_block + 1),
                 "isCurrentEpoch": epoch == current_epoch
             }
         
@@ -1620,11 +1621,11 @@ async def get_demurrage_epoch_stats(
         
         # Create a parameter list for the SQL IN query
         block_heights = [tx.get("inclusionHeight", 0) for tx in all_transactions if tx.get("inclusionHeight", 0) > 0]
-        block_heights = list(set(block_heights))  # Remove duplicates
+        block_heights = list(set(block_heights)) # Remove duplicates
         
         # Handle empty list case
         if not block_heights:
-            logger.warning("No transaction block heights found")
+            logger.warning("No transaction block heights found for epoch calculation.")
         else:
             # Chunk the query to avoid excessive parameters
             chunk_size = 500
@@ -1635,68 +1636,89 @@ async def get_demurrage_epoch_stats(
                     continue
                     
                 query = """
-                    SELECT blockheight 
-                    FROM blocks 
+                    SELECT blockheight
+                    FROM blocks
                     WHERE blockheight = ANY($1)
                 """
                 rows = await conn.fetch(query, chunk)
                 for row in rows:
                     our_pool_blocks.add(row['blockheight'])
         
-        logger.info(f"Found {len(our_pool_blocks)} blocks from our pool")
+        logger.info(f"Found {len(our_pool_blocks)} blocks from our pool relevant to fetched transactions.")
         
-        # Process all transactions to calculate demurrage by epoch
+        # --- Refactored Block Aggregation ---
+        block_demurrage: Dict[int, Decimal] = {}
+        processed_tx_count = 0
+        verified_demurrage_tx_count = 0
+        
         for tx in all_transactions:
-            try:
-                # Only process incoming transactions
-                tx_id = tx.get("id")
-                
-                # Get block height to determine epoch
-                block_height = tx.get("inclusionHeight", 0)
-                if block_height <= 0:
-                    continue
-                
-                # Skip processing if block isn't from our pool
-                if block_height not in our_pool_blocks:
-                    continue
-                
-                # Calculate which epoch this transaction belongs to
-                blocks_since_reference = block_height - REFERENCE_BLOCK
-                epochs_since_reference = blocks_since_reference // BLOCKS_PER_EPOCH
-                tx_epoch = REFERENCE_EPOCH + epochs_since_reference
-                
-                # For blocks before the reference, calculate negative epoch offset
-                if block_height < REFERENCE_BLOCK:
-                    blocks_before_reference = REFERENCE_BLOCK - block_height
-                    epochs_before_reference = blocks_before_reference // BLOCKS_PER_EPOCH + (1 if blocks_before_reference % BLOCKS_PER_EPOCH > 0 else 0)
-                    tx_epoch = REFERENCE_EPOCH - epochs_before_reference
-                
-                # Skip if epoch is not in our range
-                if tx_epoch not in epoch_stats:
-                    continue
-                
-                # Get transaction details only for verified transactions from our pool
-                tx_details = await get_transaction_details(tx_id)
-                if not tx_details:
-                    continue
-                    
-                tx_type = await get_transaction_type(tx_details, DEMURRAGE_WALLET)
-                if tx_type != "incoming":
-                    continue
-                
-                # Calculate amount of demurrage in this transaction
-                amount = 0
-                for output in tx_details.get("outputs", []):
-                    if output.get("address") == DEMURRAGE_WALLET:
-                        amount += output.get("value", 0)
-                
-                # Add demurrage amount to the epoch
-                demurrage_erg = nano_ergs_to_ergs(amount)
-                epoch_stats[tx_epoch]["demurrageAmount"] += demurrage_erg
-                
-            except Exception as e:
-                logger.error(f"Error processing transaction {tx.get('id')}: {str(e)}")
+            processed_tx_count += 1
+            block_height = tx.get("inclusionHeight", 0)
+            tx_id = tx.get("id") # Keep tx_id for logging if needed
+
+            # Skip if block not found or not in our pool
+            if block_height <= 0 or block_height not in our_pool_blocks:
                 continue
+
+            try:
+                # Directly process outputs from the transaction data
+                is_incoming = False
+                amount_nano_erg = 0
+                for output in tx.get("outputs", []):
+                    if output.get("address") == DEMURRAGE_WALLET:
+                        is_incoming = True
+                        # Ensure value is treated as integer before summing
+                        value = output.get("value", 0)
+                        if isinstance(value, (int, float)): # Basic type check
+                            amount_nano_erg += int(value)
+                        else:
+                            logger.warning(f"Unexpected value type in output for tx {tx_id}: {value}")
+
+                if is_incoming and amount_nano_erg > 0:
+                    verified_demurrage_tx_count += 1
+                    # Ensure block_height exists in the map
+                    if block_height not in block_demurrage:
+                        block_demurrage[block_height] = Decimal("0.0")
+                    # Add the verified demurrage amount (convert to ERG using Decimal)
+                    block_demurrage[block_height] += Decimal(str(amount_nano_erg)) / Decimal("1000000000")
+
+            except Exception as e:
+                logger.error(f"Error processing transaction {tx_id} outputs for block {block_height}: {str(e)}")
+                continue # Move to the next transaction
+
+        logger.info(f"Processed {processed_tx_count} transactions. Found {verified_demurrage_tx_count} verified incoming demurrage transfers.") # Updated log message
+        logger.info(f"Aggregated demurrage for {len(block_demurrage)} unique blocks.")
+        # --- End Refactored Block Aggregation ---
+        
+        # --- Group Aggregated Block Data by Epoch ---
+        logger.info("Grouping aggregated block demurrage by epoch...")
+        for block_height, demurrage_amount in block_demurrage.items():
+            if demurrage_amount <= 0: # Skip blocks with no demurrage collected
+                continue
+            
+            # Calculate which epoch this block belongs to
+            blocks_since_reference = block_height - REFERENCE_BLOCK
+            epochs_since_reference = blocks_since_reference // BLOCKS_PER_EPOCH
+            block_epoch = REFERENCE_EPOCH + epochs_since_reference
+            
+            # Handle blocks before the reference epoch
+            if block_height < REFERENCE_BLOCK:
+                 blocks_before_reference = REFERENCE_BLOCK - block_height
+                 # Correct calculation for epochs before reference
+                 epochs_before_reference = (blocks_before_reference + BLOCKS_PER_EPOCH - 1) // BLOCKS_PER_EPOCH
+                 block_epoch = REFERENCE_EPOCH - epochs_before_reference
+            
+            # Add demurrage to the correct epoch if it's within our range
+            if block_epoch in epoch_stats:
+                epoch_stats[block_epoch]["demurrageAmount"] += demurrage_amount
+                epoch_stats[block_epoch]["blockCountWithDemurrage"] += 1
+            # else: # Optional: Log blocks falling outside the calculated epoch range if needed
+            #     logger.debug(f"Block {block_height} (Epoch {block_epoch}) falls outside the target epoch range {actual_first_epoch}-{current_epoch}")
+        
+        logger.info("Finished grouping block demurrage by epoch.")
+        # --- End Grouping ---
+        
+        # Process all transactions to calculate demurrage by epoch - REMOVED OLD LOOP
         
         # Convert epoch_stats dictionary to a list and sort by epoch
         epoch_list = list(epoch_stats.values())
@@ -1704,21 +1726,24 @@ async def get_demurrage_epoch_stats(
         
         # Calculate totals and averages
         total_demurrage = sum(epoch["demurrageAmount"] for epoch in epoch_list)
-        avg_demurrage_per_epoch = total_demurrage / len(epoch_list) if epoch_list else 0
+        avg_demurrage_per_epoch = total_demurrage / len(epoch_list) if epoch_list else Decimal("0.0")
         
         # Format demurrage amounts for display
         for epoch in epoch_list:
-            epoch["demurrageAmount"] = round(epoch["demurrageAmount"], 4)
+            epoch["demurrageAmount"] = round(float(epoch["demurrageAmount"]), 4) # Convert back to float for JSON
         
         # Calculate expected demurrage for current epoch based on current trend
         current_epoch_data = epoch_stats.get(current_epoch, {})
-        blocks_in_current_epoch = current_epoch_data.get("blockCount", 0)
-        current_demurrage = current_epoch_data.get("demurrageAmount", 0)
+        # Use total blocks processed in the current epoch range for projection
+        blocks_processed_in_current_epoch = current_height - current_epoch_data.get("startBlock", current_height) + 1
+        current_demurrage = Decimal(str(current_epoch_data.get("demurrageAmount", 0.0))) # Use Decimal for calc
         
-        projected_demurrage = 0
-        if blocks_in_current_epoch > 0:
-            demurrage_per_block = current_demurrage / blocks_in_current_epoch
-            projected_demurrage = demurrage_per_block * BLOCKS_PER_EPOCH
+        projected_demurrage = Decimal("0.0")
+        if blocks_processed_in_current_epoch > 0 and current_demurrage > 0:
+            # Calculate average demurrage per block observed so far in this epoch
+            demurrage_per_block = current_demurrage / Decimal(blocks_processed_in_current_epoch)
+            # Project over the full epoch size
+            projected_demurrage = demurrage_per_block * Decimal(BLOCKS_PER_EPOCH)
         
         # Prepare response
         response = {
@@ -1743,7 +1768,7 @@ async def get_demurrage_epoch_stats(
         raise HTTPException(status_code=500, detail=f"Error calculating epoch statistics: {str(e)}")
 
 @router.get("/blocks", response_model=List[BlockDemurrageInfo])
-@cache(expire=CACHE_EXPIRY * 2, key_builder=lambda *args, **kwargs: f"demurrage_blocks_{kwargs.get('limit', 100)}")
+@cache(expire=1800, key_builder=lambda *args, **kwargs: f"demurrage_blocks_{kwargs.get('limit', 100)}")
 async def get_demurrage_blocks(
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of recent blocks to return")
 ) -> List[BlockDemurrageInfo]:

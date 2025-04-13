@@ -45,7 +45,7 @@ services:
       --workers 2
       --loop uvloop 
       --http httptools
-      --log-level info
+      --log-level debug
       --timeout-keep-alive 75
       --limit-concurrency 500
       --backlog 1024

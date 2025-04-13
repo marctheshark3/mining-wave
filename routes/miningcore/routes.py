@@ -8,7 +8,8 @@ import asyncpg
 from datetime import datetime
 from utils.calculate import calculate_mining_effort
 from utils.cache import MINER_CACHE, POOL_CACHE
-from utils.blockchain import get_demurrage_for_block
+from routes.demurrage import get_demurrage_blocks, BlockDemurrageInfo
+from decimal import Decimal
 
 from .models import PoolStats, Block, Payment, Share
 from .queries import (
@@ -40,7 +41,7 @@ from utils.calculate import calculate_mining_effort
 from utils.logging import logger
 
 @router.get("/poolstats")
-@cache(expire=60, key_builder=POOL_CACHE)
+@cache(expire=180, key_builder=POOL_CACHE)
 async def get_pool_stats(conn: asyncpg.Connection = Depends(get_connection)):
     """Get current pool statistics"""
     try:
@@ -145,7 +146,7 @@ async def get_pool_stats(conn: asyncpg.Connection = Depends(get_connection)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/blocks/{address}", response_model=List[Block])
-@cache(expire=30, key_builder=MINER_CACHE)
+@cache(expire=180, key_builder=MINER_CACHE)
 async def get_miner_blocks(
     address: str,
     conn: asyncpg.Connection = Depends(get_connection),
@@ -153,6 +154,15 @@ async def get_miner_blocks(
 ):
     """Get blocks found by a specific miner"""
     try:
+        # --- Fetch accurate demurrage data first ---
+        # Fetch a larger set to increase chance of covering the miner's blocks
+        demurrage_block_data: List[Dict[str, Any]] = await get_demurrage_blocks(limit=1000) # Expect List[Dict]
+        demurrage_lookup: Dict[int, Dict[str, Any]] = { 
+            block['blockHeight']: block for block in demurrage_block_data # Use dict access
+        }
+        logger.info(f"Created demurrage lookup with {len(demurrage_lookup)} entries for get_miner_blocks.")
+        # --- End fetching demurrage data ---
+
         rows = await conn.fetch(MINER_BLOCKS_QUERY, address, limit)
         
         blocks = []
@@ -164,15 +174,20 @@ async def get_miner_blocks(
                 row['created'].isoformat()
             )
             
-            # Check for demurrage info
+            # --- Use demurrage lookup ---
             block_height = row['blockheight']
-            has_demurrage, demurrage_amount = await get_demurrage_for_block(block_height, DEMURRAGE_WALLET)
+            demurrage_info_dict = demurrage_lookup.get(block_height)
+            demurrage_details = None
+            if demurrage_info_dict:
+                # Extract data using dict keys
+                demurrage_details = (demurrage_info_dict.get('totalErg', Decimal(0)), 
+                                     demurrage_info_dict.get('tokens', {}))
+            # --- End use demurrage lookup ---
             
             blocks.append(format_block_data(
                 row=row, 
                 effort=effort,
-                has_demurrage=has_demurrage,
-                demurrage_amount=demurrage_amount
+                demurrage_info=demurrage_details # Pass the tuple or None
             ))
         
         return blocks
@@ -181,35 +196,51 @@ async def get_miner_blocks(
         raise MiningCoreException(error_msg)
 
 @router.get("/blocks", response_model=List[Block])
-@cache(expire=30, key_builder=POOL_CACHE)
+@cache(expire=180, key_builder=POOL_CACHE)
 async def get_pool_blocks(
     conn: asyncpg.Connection = Depends(get_connection),
     limit: int = Query(100, ge=1, le=1000)
 ):
     """Get all blocks found by the pool"""
     try:
+        # --- Fetch accurate demurrage data first ---
+        # Fetch a larger set to increase chance of covering the pool blocks
+        demurrage_block_data: List[Dict[str, Any]] = await get_demurrage_blocks(limit=1000) # Expect List[Dict]
+        demurrage_lookup: Dict[int, Dict[str, Any]] = { 
+            block['blockHeight']: block for block in demurrage_block_data # Use dict access
+        }
+        logger.info(f"Created demurrage lookup with {len(demurrage_lookup)} entries for get_pool_blocks.")
+        # --- End fetching demurrage data ---
+
         rows = await conn.fetch(POOL_BLOCKS_QUERY, limit)
         
         blocks = []
         for row in rows:
             effort = float(row['stored_effort']) if row['stored_effort'] is not None else 0.0
             
-            # Check for demurrage info
+            # --- Use demurrage lookup ---
             block_height = row['blockheight']
-            has_demurrage, demurrage_amount = await get_demurrage_for_block(block_height, DEMURRAGE_WALLET)
+            demurrage_info_dict = demurrage_lookup.get(block_height)
+            demurrage_details = None
+            if demurrage_info_dict:
+                 # Extract data using dict keys
+                demurrage_details = (demurrage_info_dict.get('totalErg', Decimal(0)), 
+                                     demurrage_info_dict.get('tokens', {}))
+            # --- End use demurrage lookup ---
             
             # Debug miner information
             miner_address = row.get('miner')
-            if miner_address:
-                logger.info(f"Block {block_height} has miner: {miner_address}")
-            else:
-                logger.info(f"Block {block_height} has NO miner data")
+            # (Removed redundant logging)
+            
+            # --- Add detailed logging before formatting ---
+            logger.debug(f"Block {block_height} DB row: {dict(row)}")
+            logger.debug(f"Block {block_height} Demurrage details: {demurrage_details}")
+            # --- End detailed logging ---
             
             formatted_block = format_block_data(
                 row=row, 
                 effort=effort,
-                has_demurrage=has_demurrage,
-                demurrage_amount=demurrage_amount
+                demurrage_info=demurrage_details # Pass the tuple or None
             )
             
             # Ensure miner is explicitly added even if None
@@ -224,7 +255,7 @@ async def get_pool_blocks(
         raise MiningCoreException(error_msg)
 
 @router.get("/payments/{address}", response_model=List[Payment])
-@cache(expire=60, key_builder=MINER_CACHE)
+@cache(expire=180, key_builder=MINER_CACHE)
 async def get_miner_payments(
     address: str,
     conn: asyncpg.Connection = Depends(get_connection),
@@ -239,7 +270,7 @@ async def get_miner_payments(
         raise MiningCoreException(error_msg)
 
 @router.get("/shares", response_model=List[Share])
-@cache(expire=30, key_builder=POOL_CACHE)
+@cache(expire=180, key_builder=POOL_CACHE)
 async def get_current_shares(conn: asyncpg.Connection = Depends(get_connection)):
     """Get current share counts for all miners"""
     try:
@@ -250,7 +281,7 @@ async def get_current_shares(conn: asyncpg.Connection = Depends(get_connection))
         return []
 
 @router.get("/{table_name}")
-@cache(expire=60, key_builder=POOL_CACHE)
+@cache(expire=180, key_builder=POOL_CACHE)
 async def get_table_data(
     table_name: str, 
     conn: asyncpg.Connection = Depends(get_connection)
@@ -265,7 +296,7 @@ async def get_table_data(
         raise HTTPException(status_code=500, detail="Database error")
 
 @router.get("/{table_name}/{address}")
-@cache(expire=60, key_builder=MINER_CACHE)
+@cache(expire=180, key_builder=MINER_CACHE)
 async def get_filtered_table_data(
     table_name: str, 
     address: str, 

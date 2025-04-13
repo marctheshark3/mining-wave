@@ -224,83 +224,239 @@ This document provides information about all available API endpoints in the Mini
 ### Demurrage Wallet
 - **Endpoint**: `/demurrage/wallet`
 - **Method**: GET
-- **Description**: Get detailed statistics and transactions for the demurrage wallet
+- **Description**: Get detailed statistics and transactions for the demurrage wallet. Uses a comprehensive calculation method by default to provide accurate period-based statistics.
 - **Parameters**:
-  - `limit`: Maximum number of transactions to fetch (default: 20, max: 100)
+  - `limit`: Maximum number of recent transactions to return in `recentIncoming` and `recentOutgoing` lists (default: 10, max: 50).
+  - `use_comprehensive`: Boolean flag to enable/disable the comprehensive calculation method (default: true). If false, uses a faster but less accurate method based only on recent transactions.
 - **Response**: Comprehensive demurrage wallet statistics including:
-  - Current wallet balance
-  - Recent incoming transactions (with verification status)
-  - Recent outgoing transactions (distributions)
-  - Total demurrage collected (verified)
-  - Total demurrage distributed
-  - Last distribution details
-  - Next estimated distribution (if predictable)
-- **Cache**: 60 seconds
+  ```json
+  {
+    "balance": 123.4567, // Current wallet balance in ERG
+    "recentIncoming": [ // List of recent incoming transactions (verified demurrage)
+      {
+        "txId": "...",
+        "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
+        "amount": 0.625,
+        "blockHeight": 1234567,
+        "isVerifiedDemurrage": true 
+      } 
+      // ... (up to limit)
+    ],
+    "recentOutgoing": [ // List of recent outgoing transactions (distributions)
+      {
+        "txId": "...",
+        "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
+        "totalAmount": 50.1234,
+        "recipientCount": 15
+      }
+      // ... (up to limit)
+    ],
+    "totalCollected": 518.8235, // Total verified demurrage collected (all time)
+    "totalDistributed": 495.1111, // Total ERG distributed (all time)
+    "distributed7d": 60.0,       // Total ERG distributed in the last 7 days
+    "distributed30d": 250.0,     // Total ERG distributed in the last 30 days
+    "collected24h": 6.3688,      // Total verified demurrage collected in the last 24 hours
+    "collected7d": 63.2554,     // Total verified demurrage collected in the last 7 days
+    "collected30d": 276.0499,    // Total verified demurrage collected in the last 30 days
+    "lastDistribution": {        // Details of the last distribution transaction
+      "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
+      "amount": 50.1234,
+      "recipientCount": 15
+    },
+    "nextEstimatedDistribution": { // Estimated details for the next distribution
+      "estimatedTimestamp": "YYYY-MM-DDTHH:MM:SSZ",
+      "estimatedAmount": 6.5 // Estimated based on recent collection rate
+    }
+  }
+  ```
+- **Cache**: 1800 seconds (30 minutes)
 
 ### Demurrage Statistics
 - **Endpoint**: `/demurrage/stats`
 - **Method**: GET
-- **Description**: Get comprehensive statistics about demurrage across different time periods
+- **Description**: Get comprehensive statistics about demurrage across different time periods, including estimated earnings based on hashrate. Relies on `/demurrage/wallet` for collection data.
 - **Response**: Detailed demurrage statistics including:
-  - Period-specific stats (24h, 7d, 30d, all time):
-    - Total demurrage collected
-    - Average demurrage per block
-    - Number of blocks with demurrage
-    - Total blocks in period
-    - Percentage of blocks with demurrage
-  - Estimated earnings for different hashrate levels (1 GH/s, 5 GH/s, 10 GH/s, 50 GH/s)
-  - Current pool hashrate
-  - Timestamp of last update
-- **Cache**: 300 seconds
+  ```json
+  {
+    "periods": {
+      "24h": {
+        "totalDemurrage": 6.3688,
+        "avgPerBlock": 0.045, // Average demurrage per block found by pool in period
+        "blocksWithDemurrage": 5, // Count of pool blocks confirmed to have demurrage
+        "totalBlocks": 10, // Total blocks found by pool in period
+        "demurragePercentage": 50.0 // Percentage of pool blocks with demurrage
+      },
+      "7d": { ... }, // Similar structure for 7 days
+      "30d": { ... }, // Similar structure for 30 days
+      "allTime": { ... } // Similar structure for all time
+    },
+    "estimatedEarnings": { // Estimated earnings based on miner hashrate proportion
+      "1GHs": {"24h": 0.06, "7d": 0.63, "30d": 2.76},
+      "5GHs": { ... },
+      "10GHs": { ... },
+      "50GHs": { ... }
+    },
+    "currentPoolHashrate": 110.5, // Current pool hashrate in GH/s
+    "lastUpdated": "YYYY-MM-DDTHH:MM:SS.ffffffZ", // Timestamp of when the data was generated
+    "apiStatus": { // Status of the data processing
+      "processedBlocks": 5000,
+      "errorCount": 0,
+      "completionPercentage": 100.0
+    }
+  }
+  ```
+- **Cache**: 1800 seconds (30 minutes)
 
 ### Miner Demurrage Earnings
 - **Endpoint**: `/demurrage/miner/{address}`
 - **Method**: GET
-- **Description**: Get demurrage earnings specific to a miner address
+- **Description**: Get demurrage earnings specific to a miner address, calculated based on their historical pool share.
 - **Parameters**:
-  - `address`: The miner's Ergo address
+  - `address`: The miner's Ergo address (Path parameter)
 - **Response**: Detailed information about the miner's demurrage earnings including:
-  - Historical share of pool hashrate
-  - Demurrage earnings across different time periods
-  - Recent payments received from the demurrage wallet
-  - Projected next payment
-- **Cache**: 120 seconds
+  ```json
+  {
+    "minerAddress": "...",
+    "currentHashrate": 5.5e9, // Miner's current reported hashrate
+    "currentPoolShare": 5.0, // Miner's current share of the pool hashrate (%)
+    "earnings": { // Estimated earnings based on average share during period
+      "24h": {"amount": 0.3184, "shareOfTotal": 5.0}, 
+      "7d": {"amount": 3.1627, "shareOfTotal": 4.8},
+      "30d": {"amount": 13.8025, "shareOfTotal": 4.9},
+      "allTime": {"amount": 25.9411, "shareOfTotal": 4.7}
+    },
+    "recentPayments": [ // Payments received directly from the demurrage wallet
+      {
+        "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
+        "amount": 2.5,
+        "txId": "..."
+      }
+      // ... (up to 10)
+    ],
+    "projectedNextPayment": { // Estimated next payment based on pool distribution schedule
+      "estimatedTimestamp": "YYYY-MM-DDTHH:MM:SSZ",
+      "estimatedAmount": 0.325 
+    },
+    "apiStatus": { // Status of the block processing for demurrage calculation
+      "processedBlocks": 4998,
+      "errorCount": 2,
+      "completionPercentage": 99.9
+    }
+  }
+  ```
+- **Cache**: 1800 seconds (30 minutes)
 
 ### Demurrage Health
 - **Endpoint**: `/demurrage/health`
 - **Method**: GET
-- **Description**: Test blockchain API connectivity and health for demurrage monitoring
+- **Description**: Test blockchain API connectivity (Explorer and Local Node) and health for demurrage monitoring.
 - **Response**: Health status information including:
-  - Explorer API status and block height
-  - Node API status and block height
-  - Block retrieval test status
-  - Overall health status (ok/degraded)
+  ```json
+  {
+    "explorerApi": {
+      "status": "ok", // "ok" or "error"
+      "height": 1234567 
+    },
+    "nodeApi": {
+      "status": "ok",
+      "height": 1234567,
+      "headersHeight": 1234568,
+      "isConnected": true
+    },
+    "blockRetrieval": {
+      "status": "ok",
+      "blockId": "...",
+      "height": 1000000
+    },
+    "overall": "ok" // "ok" or "degraded"
+  }
+  ```
 - **Cache**: 60 seconds
+
+### Demurrage Debug
+- **Endpoint**: `/demurrage/debug`
+- **Method**: GET
+- **Description**: Debug endpoint for demurrage calculation. Retrieves raw block data from `/miningcore/blocks` and shows detailed counts and percentages of blocks with demurrage for different periods.
+- **Response**: Debugging information about demurrage occurrence in pool blocks:
+  ```json
+  {
+    "periods": {
+      "24h": {
+        "totalBlocks": 10,
+        "blocksWithDemurrage": 5,
+        "blocksWithoutDemurrage": 5,
+        "demurragePercentage": 50.0,
+        "sampleBlocksWithDemurrage": [ { ... block data ... } ], // Max 3 samples
+        "sampleBlocksWithoutDemurrage": [ { ... block data ... } ] // Max 3 samples
+      },
+      "7d": { ... }, // Similar structure for 7 days
+      "30d": { ... }, // Similar structure for 30 days
+      "allTime": { ... } // Similar structure for all time
+    },
+    "totalBlocksInApi": 500 // Total blocks returned by /miningcore/blocks
+  }
+  ```
+- **Cache**: No cache
+
+### Demurrage Epoch Stats
+- **Endpoint**: `/demurrage/epochs`
+- **Method**: GET
+- **Description**: Get epoch-based demurrage statistics, showing verified demurrage rewards collected in each recent epoch (up to the last 10).
+- **Response**: Demurrage statistics grouped by Ergo epoch:
+  ```json
+  {
+    "currentEpoch": 1480,
+    "currentHeight": 1516544,
+    "blocksInCurrentEpoch": 512,
+    "blocksLeftInEpoch": 512,
+    "currentEpochStartBlock": 1516032,
+    "totalEpochs": 10, // Number of epochs included in the 'epochs' list
+    "totalDemurrage": 150.5678, // Total verified demurrage across listed epochs
+    "averageDemurragePerEpoch": 15.0567, // Average across listed epochs
+    "projectedDemurrageForCurrentEpoch": 16.5, // Projection based on current rate
+    "epochs": [
+      {
+        "epoch": 1471,
+        "startBlock": 1507328,
+        "endBlock": 1508351,
+        "demurrageAmount": 14.2, // Verified demurrage collected
+        "blockCountWithDemurrage": 60, // Pool blocks in epoch with demurrage
+        "totalBlocksInEpochRange": 1024, // Total blocks in this epoch
+        "isCurrentEpoch": false
+      }
+      // ... (for up to 10 recent epochs)
+    ]
+  }
+  ```
+- **Cache**: 1800 seconds (30 minutes)
+
+### Demurrage Blocks
+- **Endpoint**: `/demurrage/blocks`
+- **Method**: GET
+- **Description**: Retrieves demurrage collections (ERG and tokens) grouped by block height. Fetches incoming transactions to the demurrage wallet. Excludes distributions (outgoing transactions).
+- **Parameters**:
+  - `limit`: Maximum number of recent blocks with demurrage to return (default: 100, max: 1000).
+- **Response**: List of blocks containing demurrage, sorted by height descending:
+  ```json
+  [
+    {
+      "blockHeight": 1516540,
+      "totalErg": 0.625, // Total ERG collected in this block
+      "tokens": { // Dictionary of token IDs and amounts collected
+        "tokenId1...": 1000,
+        "tokenId2...": 50
+      }
+    },
+    {
+      "blockHeight": 1516535,
+      "totalErg": 0.675,
+      "tokens": {}
+    }
+    // ... (up to limit)
+  ]
+  ```
+- **Cache**: 1800 seconds (30 minutes)
 
 ## Demurrage Monitoring
 
-The system includes an advanced demurrage monitoring solution that automatically detects and records demurrage payments in the blockchain. This monitoring uses a three-step detection approach:
-
-1. **Address-based detection**: Looks for transactions with outputs to the demurrage wallet address
-2. **Known amount detection**: Identifies transactions based on previously recorded demurrage amounts
-3. **Pattern-based detection**: Recognizes potential demurrage payments based on common patterns (amounts ending in .x25 or .x75)
-
-A continuous monitoring script is available that:
-- Checks new blocks for demurrage payments
-- Records all demurrage information in a structured JSON file
-- Provides summaries of demurrage activity
-- Maintains a history of all demurrage blocks for statistical analysis
-
-To use the monitoring system:
-```bash
-# Monitor mode - continuously check for new blocks
-python scripts/monitor_demurrage.py
-
-# Summary mode - display statistics about recorded demurrage
-python scripts/monitor_demurrage.py summary
-
-# Backfill mode - check historical blocks for demurrage
-python scripts/monitor_demurrage.py backfill <start_height> <end_height>
-```
-
-All demurrage data is stored in `/data/demurrage_records.json` and is automatically used by the API endpoints for accurate statistics. 
+(Section removed as monitoring is now internal and reflected in the API responses) 
