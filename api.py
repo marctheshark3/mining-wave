@@ -18,6 +18,7 @@ from routes import miningcore, sigscore, general, demurrage
 from middleware import setup_middleware
 from utils.logging import logger, start_telegram_handler, stop_telegram_handler
 from config import settings
+from dependencies import verify_api_key
 
 async def monitor_system_health():
     """Monitor system resources and health metrics"""
@@ -151,7 +152,8 @@ def create_application() -> FastAPI:
         title="MiningWave API",
         description="FastAPI-based microservice for crypto mining pool metrics and management",
         version="1.0.0",
-        lifespan=lifespan
+        lifespan=lifespan,
+        dependencies=[Depends(verify_api_key)]
     )
     
     # Setup CORS

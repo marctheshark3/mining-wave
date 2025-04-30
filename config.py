@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     CLEANUP_INTERVAL: int = int(os.getenv("CLEANUP_INTERVAL", "300"))
     
     # API settings
+    API_KEY: str = os.getenv("API_KEY", "")
     MAX_CONNECTIONS: int = int(os.getenv("MAX_CONNECTIONS", "50"))
     DEBUG: bool = True
     THROTTLE_RATE: int = int(os.getenv("THROTTLE_RATE", "50"))

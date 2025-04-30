@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: mining-wave-api-prod
+    # No ports exposed directly; Nginx handles external traffic
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST} # Should likely be the host running Postgres in production
+      - DB_PORT=${DB_PORT}
+      - REDIS_URL=redis://redis-prod:6380
+      - POOL_MIN_SIZE=4 # Adjusted for potential prod load
+      - POOL_MAX_SIZE=16
+      - MAX_CONNECTIONS=100
+      - CONNECTION_TIMEOUT=10
+      - COMMAND_TIMEOUT=30
+      - STATEMENT_TIMEOUT=20000
+      - EXPLORER_API_RETRY_COUNT=5 # Higher retries for prod
+      - EXPLORER_API_RETRY_DELAY=5
+      - EXPLORER_API_TIMEOUT=15
+      - PYTHONUNBUFFERED=1
+      - NOTIFICATION_WINDOW=300
+      - MAX_SIMILAR_NOTIFICATIONS=3
+      # Set Gunicorn or Uvicorn workers based on CPU cores available
+      # Example: WEB_CONCURRENCY=4
+      - WEB_CONCURRENCY=${WEB_CONCURRENCY:-2} 
+    deploy:
+      resources:
+        limits:
+          cpus: '4' # Higher resources for prod
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+    restart: unless-stopped
+    volumes:
+      - ./:/app
+    # Command uses Gunicorn for production, assuming you have it installed
+    # Or stick with Uvicorn if preferred, adjust workers
+    command: >
+      uvicorn api:app 
+      --host 0.0.0.0 
+      --port 8000
+      # SSL handled by Nginx, removed --ssl args
+      --workers ${WEB_CONCURRENCY} 
+      --loop uvloop 
+      --http httptools
+      --log-level info # Use info level for prod
+      --timeout-keep-alive 75
+      --limit-concurrency 1000 # Higher concurrency limit
+      --backlog 2048
+    depends_on:
+      redis-prod:
+        condition: service_healthy
+    healthcheck:
+      # Internal check, SSL not needed here
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"] 
+      interval: 30s
+      timeout: 10s
+      retries: 5 # More retries for prod startup
+
+  redis-prod:
+    image: redis:7-alpine
+    container_name: mining-wave-redis-prod
+    command: redis-server --port 6380 --maxmemory 2gb --maxmemory-policy allkeys-lru # Increased memory
+    # No ports exposed externally
+    volumes:
+      - redis_data_prod:/data
+    deploy:
+      resources:
+        limits:
+          memory: 2.5G
+        reservations:
+          memory: 2G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: mining-wave-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    depends_on:
+      - api
+    restart: unless-stopped
+    # Reload Nginx periodically to pick up renewed certs. Escape inner single quotes.
+    command: '/bin/sh -c ''while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'''
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: mining-wave-certbot-prod
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # Command to run renewal check approx once a month
+    command: "sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 30d & wait $${!}; done;'"
+
+volumes:
+  redis_data_prod:
+  certbot_conf:
+  certbot_www: 
