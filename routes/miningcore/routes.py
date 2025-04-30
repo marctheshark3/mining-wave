@@ -206,6 +206,15 @@ async def get_pool_blocks(
         # --- Fetch accurate demurrage data first ---
         # Fetch a larger set to increase chance of covering the pool blocks
         demurrage_block_data: List[Dict[str, Any]] = await get_demurrage_blocks(limit=1000) # Expect List[Dict]
+        
+        # --- Add logging to inspect demurrage_block_data items ---
+        if demurrage_block_data:
+            logger.debug(f"First item type in demurrage_block_data: {type(demurrage_block_data[0])}")
+            logger.debug(f"First item content in demurrage_block_data: {demurrage_block_data[0]}")
+        else:
+            logger.debug("demurrage_block_data is empty.")
+        # --- End logging ---
+
         demurrage_lookup: Dict[int, Dict[str, Any]] = { 
             block['blockHeight']: block for block in demurrage_block_data # Use dict access
         }

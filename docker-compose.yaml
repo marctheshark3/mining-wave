@@ -5,7 +5,7 @@ services:
     build: .
     container_name: mining-wave-api
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     environment:
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
@@ -41,7 +41,7 @@ services:
     command: >
       uvicorn api:app 
       --host 0.0.0.0 
-      --port 8000 
+      --port 8000
       --workers 2
       --loop uvloop 
       --http httptools

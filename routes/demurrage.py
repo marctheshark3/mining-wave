@@ -1767,16 +1767,16 @@ async def get_demurrage_epoch_stats(
         logger.error(f"Error in get_demurrage_epoch_stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error calculating epoch statistics: {str(e)}")
 
-@router.get("/blocks", response_model=List[BlockDemurrageInfo])
+@router.get("/blocks", response_model=List[Dict[str, Any]])
 @cache(expire=1800, key_builder=lambda *args, **kwargs: f"demurrage_blocks_{kwargs.get('limit', 100)}")
 async def get_demurrage_blocks(
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of recent blocks to return")
-) -> List[BlockDemurrageInfo]:
+) -> List[Dict[str, Any]]:
     """
     Retrieves demurrage collections (ERG and tokens) grouped by block height.
     Fetches transactions for the demurrage wallet and aggregates incoming assets per block.
     Filters out transactions where the demurrage wallet is an input (outgoing).
-    Returns a list sorted by block height descending.
+    Returns a list of dictionaries, sorted by block height descending.
     """
     logger.info(f"Starting get_demurrage_blocks endpoint with limit={limit}")
     blocks_data: Dict[int, Dict[str, Any]] = {}
@@ -1846,24 +1846,24 @@ async def get_demurrage_blocks(
         logger.error(f"Error processing demurrage transactions for block view: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error processing demurrage data")
 
-    # Convert aggregated data to the response model format
+    # Convert aggregated data to dictionaries
     logger.info(f"Finished processing transactions. Found data for {len(blocks_data)} blocks. Skipped {skipped_outgoing_count} outgoing transactions.") # Updated log
-    logger.info("Converting aggregated data to response model...")
-    response_list = [
+    logger.info("Converting aggregated data to list of dictionaries...")
+    response_list_dicts = [
         BlockDemurrageInfo(
             blockHeight=height,
             totalErg=data["totalErg"],
             tokens=data["tokens"]
-        )
+        ).dict()  # Changed from model_dump() to dict() for Pydantic v1 compatibility
         for height, data in blocks_data.items() if data["totalErg"] > 0 or data["tokens"] # Only include blocks with actual collection
     ]
 
-    # Sort by block height descending and apply limit
-    logger.info(f"Sorting {len(response_list)} blocks by height descending.")
-    response_list.sort(key=lambda x: x.blockHeight, reverse=True)
+    # Sort dictionaries by block height descending and apply limit
+    logger.info(f"Sorting {len(response_list_dicts)} block dictionaries by height descending.")
+    response_list_dicts.sort(key=lambda x: x['blockHeight'], reverse=True)
 
-    logger.info(f"Returning final list of {min(len(response_list), limit)} blocks.")
-    return response_list[:limit]
+    logger.info(f"Returning final list of {min(len(response_list_dicts), limit)} block dictionaries.")
+    return response_list_dicts[:limit]
 
 # --- Helper Function ---
 async def fetch_all_demurrage_transactions(address: str, session: aiohttp.ClientSession, max_transactions: int = 2000) -> List[Dict[str, Any]]:
