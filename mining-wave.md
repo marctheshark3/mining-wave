@@ -23,6 +23,8 @@ This project, Mining Wave, provides an API and associated tools for interacting 
 *   Middleware implementation (`middleware.py`).
 *   Scripts for bonus verification, threshold checks, and settings updates exist.
 *   Docker setup (`Dockerfile`, `docker-compose.yaml`).
+*   Pool information APIs (`routes/pool/`) with public access (no API key required).
+*   Pool configuration management via JSON file (`data/pool_config.json`).
 
 *(Update this section after major milestones)*
 
@@ -35,6 +37,7 @@ This project, Mining Wave, provides an API and associated tools for interacting 
 *   **Database Layer (`database.py`):** Manages interactions with the database.
 *   **Configuration (`config.py`):** Loads and provides access to settings.
 *   **Middleware (`middleware.py`):** Handles cross-cutting concerns like authentication or logging.
+*   **Pool API (`routes/pool/`):** Public API for pool information (no API key required).
 *   **Utility Scripts (`scripts/`, `verify_*.py`, etc.):** Perform specific tasks like calculations or checks.
 *   **Monitoring (`monitoring/`):** Contains monitoring-related code/configuration.
 
@@ -102,6 +105,19 @@ This project, Mining Wave, provides an API and associated tools for interacting 
 ## API Documentation
 
 API endpoint documentation can be found in `api.md` or potentially via an auto-generated Swagger/OpenAPI interface at `/docs` (if configured in `api.py`).
+
+### Pool Information APIs
+
+The project includes a set of public APIs that provide pool information without requiring API key authentication. These APIs serve information from a configuration file (`data/pool_config.json`) and include:
+
+*   **Pool Information** (`/pool/info`): Complete pool details including location, fees, and software type
+*   **Pool API URL** (`/pool/api-url`): The pool's API endpoint for hashrate and miner data
+*   **Pool Software** (`/pool/software`): Software type used by the pool
+*   **Pool Fee** (`/pool/fee`): Pool fee percentage
+*   **Pool Location** (`/pool/location`): Geographical location (currently HELSINKI)
+*   **Additional endpoints**: Pool URL, coin information, status, and configuration reload
+
+These endpoints are designed to be consumed by pool listing services and are rate-limited but publicly accessible.
 
 ## Future Plans / Roadmap
 

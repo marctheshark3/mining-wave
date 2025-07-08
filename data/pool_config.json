@@ -1,0 +1,35 @@
+{
+  "pool_info": {
+    "name": "MiningWave Pool",
+    "location": "HELSINKI",
+    "contact_email": "admin@miningwave.com",
+    "coin": {
+      "symbol": "ERG",
+      "name": "Ergo",
+      "algorithm": "Autolykos"
+    },
+    "pool_url": "https://pool.miningwave.com",
+    "api_url": "https://api.pool.miningwave.com",
+    "software_type": "custom",
+    "fee_percentage": 1.0,
+    "features": [
+      "current_hashrate",
+      "online_miners",
+      "pool_stats",
+      "miner_stats"
+    ],
+    "last_updated": "2024-01-20T00:00:00Z",
+    "status": "active"
+  },
+  "api_endpoints": {
+    "pool_stats": "/stats",
+    "miners": "/miners",
+    "blocks": "/blocks",
+    "payments": "/payments"
+  },
+  "metadata": {
+    "version": "1.0.0",
+    "created_by": "MiningWave API",
+    "description": "Pool configuration for MiningWave mining pool in Helsinki"
+  }
+} 

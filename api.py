@@ -15,6 +15,7 @@ from fastapi.responses import RedirectResponse
 
 from database import DatabasePool
 from routes import miningcore, sigscore, general, demurrage
+from routes.pool import routes as pool_routes
 from middleware import setup_middleware
 from utils.logging import logger, start_telegram_handler, stop_telegram_handler
 from config import settings
@@ -152,8 +153,7 @@ def create_application() -> FastAPI:
         title="MiningWave API",
         description="FastAPI-based microservice for crypto mining pool metrics and management",
         version="1.0.0",
-        lifespan=lifespan,
-        dependencies=[Depends(verify_api_key)]
+        lifespan=lifespan
     )
     
     # Setup CORS
@@ -185,10 +185,11 @@ def create_application() -> FastAPI:
     )
     
     # Include routers
-    app.include_router(general.router)
-    app.include_router(miningcore.router, prefix="/miningcore")
-    app.include_router(sigscore.router, prefix="/sigscore")
-    app.include_router(demurrage.router, prefix="/demurrage")
+    app.include_router(general.router, dependencies=[Depends(verify_api_key)])
+    app.include_router(miningcore.router, prefix="/miningcore", dependencies=[Depends(verify_api_key)])
+    app.include_router(sigscore.router, prefix="/sigscore", dependencies=[Depends(verify_api_key)])
+    app.include_router(demurrage.router, prefix="/demurrage", dependencies=[Depends(verify_api_key)])
+    app.include_router(pool_routes.router)  # No API key required for pool endpoints
     
     # Additional middleware
     setup_middleware(app)

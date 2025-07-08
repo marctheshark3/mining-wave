@@ -42,6 +42,111 @@ This document provides information about all available API endpoints in the Mini
 - **Description**: Test database connectivity
 - **Response**: Connection status
 
+## Pool Routes
+
+**Note**: Pool endpoints do not require API key authentication and are publicly accessible.
+
+### Pool Information
+- **Endpoint**: `/pool/info`
+- **Method**: GET
+- **Description**: Get comprehensive pool information including location, fees, software type, and API details
+- **Rate Limit**: 30 requests per 60 seconds
+- **Response**: Complete pool information including:
+  ```json
+  {
+    "name": "MiningWave Pool",
+    "location": "HELSINKI",
+    "contact_email": "admin@miningwave.com",
+    "coin": {
+      "symbol": "ERG",
+      "name": "Ergo",
+      "algorithm": "Autolykos"
+    },
+    "pool_url": "https://pool.miningwave.com",
+    "api_url": "https://api.pool.miningwave.com",
+    "software_type": "custom",
+    "fee_percentage": 1.0,
+    "status": "active"
+  }
+  ```
+
+### Pool API URL
+- **Endpoint**: `/pool/api-url`
+- **Method**: GET
+- **Description**: Get the pool's API URL that provides current hashrate and online miners
+- **Rate Limit**: 60 requests per 60 seconds
+- **Response**: `{"value": "https://api.pool.miningwave.com"}`
+
+### Pool Software Type
+- **Endpoint**: `/pool/software`
+- **Method**: GET
+- **Description**: Get the software type used by the pool (mpos, yiimp, custom, etc.)
+- **Rate Limit**: 60 requests per 60 seconds
+- **Response**: `{"value": "custom"}`
+
+### Pool Fee
+- **Endpoint**: `/pool/fee`
+- **Method**: GET
+- **Description**: Get the pool's fee percentage
+- **Rate Limit**: 60 requests per 60 seconds
+- **Response**: 
+  ```json
+  {
+    "fee_percentage": 1.0,
+    "currency": "ERG"
+  }
+  ```
+
+### Pool Location
+- **Endpoint**: `/pool/location`
+- **Method**: GET
+- **Description**: Get the geographical location of the pool
+- **Rate Limit**: 60 requests per 60 seconds
+- **Response**: `{"value": "HELSINKI"}`
+
+### Pool Website URL
+- **Endpoint**: `/pool/url`
+- **Method**: GET
+- **Description**: Get the pool's main website URL
+- **Rate Limit**: 60 requests per 60 seconds
+- **Response**: `{"value": "https://pool.miningwave.com"}`
+
+### Pool Coin Information
+- **Endpoint**: `/pool/coin`
+- **Method**: GET
+- **Description**: Get information about the coin being mined
+- **Rate Limit**: 60 requests per 60 seconds
+- **Response**: 
+  ```json
+  {
+    "symbol": "ERG",
+    "name": "Ergo",
+    "algorithm": "Autolykos"
+  }
+  ```
+
+### Pool Status
+- **Endpoint**: `/pool/status`
+- **Method**: GET
+- **Description**: Get the current operational status of the pool
+- **Rate Limit**: 60 requests per 60 seconds
+- **Response**: 
+  ```json
+  {
+    "status": "active",
+    "name": "MiningWave Pool",
+    "location": "HELSINKI",
+    "last_updated": "2024-01-20T00:00:00Z"
+  }
+  ```
+
+### Reload Pool Configuration
+- **Endpoint**: `/pool/reload`
+- **Method**: POST
+- **Description**: Force a reload of the pool configuration from file (admin function)
+- **Rate Limit**: 5 requests per 300 seconds
+- **Response**: `{"message": "Pool configuration reloaded successfully"}`
+
 ## MiningCore Routes
 
 ### Pool Statistics
